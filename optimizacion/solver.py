@@ -6,7 +6,7 @@ import logging
 from pyomo.environ import SolverFactory
 from pathlib import Path
 
-from ..config import get_solver_path
+from config import get_solver_path
 
 logger = logging.getLogger(__name__)
 

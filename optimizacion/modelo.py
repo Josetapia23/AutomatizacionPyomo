@@ -10,7 +10,7 @@ from pyomo.environ import (
     SolverFactory, Param, Set, minimize, value, Constraint
 )
 
-from ..config import DATOS_INICIALES, RESULTADO_OFERTAS
+from config import DATOS_INICIALES, RESULTADO_OFERTAS
 
 logger = logging.getLogger(__name__)
 

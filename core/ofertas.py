@@ -10,7 +10,7 @@ import os
 import logging
 from pathlib import Path
 
-from ..config import DATOS_INICIALES, OFERTAS_DIR, RESULTADO_OFERTAS
+from config import DATOS_INICIALES, OFERTAS_DIR, RESULTADO_OFERTAS
 from .utils import (
     verificar_archivo_existe,
     verificar_hoja_existe,

@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 import os
 
-from ..config import DATOS_INICIALES
+from config import DATOS_INICIALES
 from .utils import (
     verificar_archivo_existe, 
     verificar_hoja_existe, 
@@ -130,7 +130,7 @@ def crear_proyeccion_indexadores(datos_iniciales=DATOS_INICIALES, carpeta_oferta
     
     # Si no se proporcionó carpeta de ofertas, usar la configuración global
     if carpeta_ofertas is None:
-        from ..config import OFERTAS_DIR
+        from config import OFERTAS_DIR
         carpeta_ofertas = OFERTAS_DIR
     
     # Buscar archivos de ofertas
