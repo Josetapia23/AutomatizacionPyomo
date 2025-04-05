@@ -24,7 +24,8 @@ from core.indexadores import crear_proyeccion_indexadores
 from core.ofertas import procesar_ofertas, procesar_precio_sicep
 from core.evaluacion import (
     evaluar_ofertas_para_optimizacion, calcular_estadisticas_ofertas,
-    exportar_asignaciones_por_oferta, crear_hoja_demanda_faltante
+    exportar_asignaciones_por_oferta, crear_hoja_demanda_faltante,
+    leer_ofertas_evaluadas
 )
 from optimizacion.modelo import construir_modelo, extraer_resultados
 from optimizacion.solver import resolver_modelo
@@ -122,10 +123,10 @@ def ejecutar_flujo_completo():
             print("ERROR: No se pudo leer la demanda")
             return False
         
-        # Paso 6: Evaluar ofertas para optimización
-        print("\n=== PASO 5: EVALUAR OFERTAS PARA OPTIMIZACIÓN ===")
-        ofertas_df = evaluar_ofertas_para_optimizacion(RESULTADO_OFERTAS)
-        if ofertas_df is None:
+        # Paso 6: Leer ofertas para optimización
+        print("\n=== PASO 5: LEER OFERTAS PARA OPTIMIZACIÓN ===")
+        ofertas_df = leer_ofertas_evaluadas(RESULTADO_OFERTAS)
+        if ofertas_df.empty:
             print("ERROR: No hay ofertas válidas para optimización")
             return False
         
@@ -233,9 +234,9 @@ def main():
                 print("ERROR: No se pudo leer la demanda")
                 continue
             
-            # Evaluar ofertas
-            ofertas_df = evaluar_ofertas_para_optimizacion(RESULTADO_OFERTAS)
-            if ofertas_df is None:
+            # Leer ofertas para optimización
+            ofertas_df = leer_ofertas_evaluadas(RESULTADO_OFERTAS)
+            if ofertas_df.empty:
                 print("ERROR: No hay ofertas válidas para optimización")
                 continue
             

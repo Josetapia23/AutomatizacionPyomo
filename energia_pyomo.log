@@ -1,0 +1,79 @@
+2025-04-05 16:35:19,685 - core.indexadores - INFO - Creando proyección de indexadores en C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\data\datos_iniciales.xlsx
+2025-04-05 16:35:20,462 - core.utils - INFO - Hoja 'PROYECCIÓN INDEXADORES' eliminada de C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\data\datos_iniciales.xlsx
+2025-04-05 16:35:20,462 - core.utils - WARNING - Se está sobreescribiendo el parámetro 'sheet_name' en leer_excel_seguro
+2025-04-05 16:35:20,498 - core.utils - WARNING - Se está sobreescribiendo el parámetro 'sheet_name' en leer_excel_seguro
+2025-04-05 16:35:23,228 - core.utils - INFO - DataFrame guardado correctamente en C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\data\datos_iniciales.xlsx (hoja: PROYECCIÓN INDEXADORES)
+2025-04-05 16:35:23,228 - core.indexadores - INFO - Proyección de indexadores creada correctamente
+2025-04-05 16:35:23,229 - core.ofertas - INFO - Procesando PRECIO SICEP desde C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\data\datos_iniciales.xlsx
+2025-04-05 16:35:23,266 - core.ofertas - INFO - PRECIO SICEP procesado correctamente: 60 períodos
+2025-04-05 16:35:23,267 - core.ofertas - INFO - Procesando ofertas en C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\OFERTAS
+2025-04-05 16:35:27,132 - core.ofertas - INFO - Procesando PRECIO SICEP desde C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\data\datos_iniciales.xlsx
+2025-04-05 16:35:27,155 - core.ofertas - INFO - PRECIO SICEP procesado correctamente: 60 períodos
+2025-04-05 16:35:27,156 - core.ofertas - INFO - Procesando PRECIO BOLSA desde C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\data\datos_iniciales.xlsx
+2025-04-05 16:35:27,181 - core.ofertas - INFO - PRECIO BOLSA procesado correctamente: 175 períodos
+2025-04-05 16:35:27,183 - core.ofertas - INFO - Procesando oferta: OP1_Wide -AES
+2025-04-05 16:35:58,237 - core.ofertas - INFO - Procesando oferta: OP1_Wide- BTG
+2025-04-05 16:36:05,760 - core.ofertas - WARNING - Se encontró una fecha nula en la oferta OP1_Wide- BTG, omitiendo esta entrada
+2025-04-05 16:36:14,311 - core.ofertas - WARNING - Se encontró una fecha nula en la oferta OP1_Wide- BTG, omitiendo esta entrada
+2025-04-05 16:36:23,358 - core.ofertas - WARNING - Se encontró una fecha nula en la oferta OP1_Wide- BTG, omitiendo esta entrada
+2025-04-05 16:36:30,634 - core.ofertas - WARNING - Se encontró una fecha nula en la oferta OP1_Wide- BTG, omitiendo esta entrada
+2025-04-05 16:36:37,828 - core.ofertas - INFO - Procesando oferta: resultado_ofertas
+2025-04-05 16:36:37,837 - core.utils - ERROR - Error al leer C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\OFERTAS\resultado_ofertas.xlsx (hoja: INDEXADOR): Worksheet named 'INDEXADOR' not found
+2025-04-05 16:36:37,846 - core.utils - ERROR - Error al leer C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\OFERTAS\resultado_ofertas.xlsx (hoja: cantidad): Worksheet named 'cantidad' not found
+2025-04-05 16:36:37,858 - core.utils - ERROR - Error al leer C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\OFERTAS\resultado_ofertas.xlsx (hoja: precios): Worksheet named 'precios' not found
+2025-04-05 16:36:37,859 - core.ofertas - ERROR - Error al leer las hojas de C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\OFERTAS\resultado_ofertas.xlsx
+2025-04-05 16:36:45,679 - core.ofertas - INFO - Resultados guardados en C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\output\resultado_ofertas.xlsx
+2025-04-05 16:36:45,687 - __main__ - INFO - Leyendo datos de demanda desde C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\data\datos_iniciales.xlsx (hoja: DEMANDA)
+2025-04-05 16:36:45,910 - __main__ - INFO - Datos de demanda leídos correctamente: 43824 registros
+2025-04-05 16:36:49,633 - core.evaluacion - INFO - Se leyeron 34536 ofertas, de las cuales 34536 son válidas para optimización
+2025-04-05 16:36:49,634 - optimizacion.modelo - INFO - Construyendo modelo de optimización...
+2025-04-05 16:36:54,133 - optimizacion.modelo - INFO - Modelo construido con 34536 combinaciones de ofertas válidas
+2025-04-05 16:36:54,137 - optimizacion.solver - INFO - Resolviendo modelo de optimización (tiempo límite: 600 segundos)...
+2025-04-05 16:36:54,138 - optimizacion.solver - INFO - Ruta del solver CBC: C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\CBC\cbc.exe
+2025-04-05 16:37:04,903 - optimizacion.solver - INFO - Se encontró una solución óptima
+2025-04-05 16:37:05,006 - optimizacion.solver - INFO - Valor de la función objetivo: 4.352047779924905e+17
+2025-04-05 16:37:05,007 - optimizacion.modelo - INFO - Extrayendo resultados del modelo...
+2025-04-05 16:37:05,662 - optimizacion.modelo - INFO - Demanda total: 7986041719.00 kWh
+2025-04-05 16:37:05,663 - optimizacion.modelo - INFO - Energía asignada total: 1331608866.39 kWh
+2025-04-05 16:37:05,663 - optimizacion.modelo - INFO - Déficit total: 5608232855.25 kWh
+2025-04-05 16:37:05,663 - optimizacion.modelo - INFO - Porcentaje cubierto: 16.67%
+2025-04-05 16:37:05,663 - optimizacion.modelo - INFO - Porcentaje déficit: 70.23%
+2025-04-05 16:37:10,338 - core.evaluacion - INFO - Hoja 'DEMANDA ASIGNADA OP1_Wide- BTG' creada en el archivo 'C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\output\resultado_ofertas.xlsx'
+2025-04-05 16:37:10,449 - core.evaluacion - INFO - Hoja 'DEMANDA ASIGNADA OP1_Wide -AES' creada en el archivo 'C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\output\resultado_ofertas.xlsx'
+2025-04-05 16:37:24,749 - core.evaluacion - INFO - Asignaciones exportadas correctamente a C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\output\resultado_ofertas.xlsx
+2025-04-05 16:37:38,450 - core.evaluacion - INFO - Hoja 'DEMANDA FALTANTE' creada en el archivo 'C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\output\resultado_ofertas.xlsx'
+2025-04-05 16:38:02,675 - core.evaluacion - INFO - Estadísticas calculadas correctamente
+2025-04-05 16:53:23,360 - core.ofertas - INFO - Procesando PRECIO SICEP desde C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\data\datos_iniciales.xlsx
+2025-04-05 16:53:23,389 - core.ofertas - INFO - PRECIO SICEP procesado correctamente: 60 períodos
+2025-04-05 16:53:23,390 - core.ofertas - INFO - Procesando ofertas en C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\OFERTAS
+2025-04-05 16:53:25,358 - core.ofertas - INFO - Procesando PRECIO SICEP desde C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\data\datos_iniciales.xlsx
+2025-04-05 16:53:25,381 - core.ofertas - INFO - PRECIO SICEP procesado correctamente: 60 períodos
+2025-04-05 16:53:25,381 - core.ofertas - INFO - Procesando PRECIO BOLSA desde C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\data\datos_iniciales.xlsx
+2025-04-05 16:53:25,413 - core.ofertas - INFO - PRECIO BOLSA procesado correctamente: 175 períodos
+2025-04-05 16:53:25,414 - core.ofertas - INFO - Procesando oferta: OP1_Wide -AES
+2025-04-05 16:53:54,073 - core.ofertas - INFO - Procesando oferta: OP1_Wide- BTG
+2025-04-05 16:54:00,762 - core.ofertas - WARNING - Se encontró una fecha nula en la oferta OP1_Wide- BTG, omitiendo esta entrada
+2025-04-05 16:54:08,246 - core.ofertas - WARNING - Se encontró una fecha nula en la oferta OP1_Wide- BTG, omitiendo esta entrada
+2025-04-05 16:54:19,708 - core.ofertas - WARNING - Se encontró una fecha nula en la oferta OP1_Wide- BTG, omitiendo esta entrada
+2025-04-05 16:54:31,211 - core.ofertas - WARNING - Se encontró una fecha nula en la oferta OP1_Wide- BTG, omitiendo esta entrada
+2025-04-05 16:54:54,393 - core.ofertas - INFO - Resultados guardados en C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\output\resultado_ofertas.xlsx
+2025-04-05 17:02:21,406 - __main__ - INFO - Leyendo datos de demanda desde C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\data\datos_iniciales.xlsx (hoja: DEMANDA)
+2025-04-05 17:02:21,622 - __main__ - INFO - Datos de demanda leídos correctamente: 43824 registros
+2025-04-05 17:02:24,975 - core.evaluacion - INFO - Se leyeron 34536 ofertas, de las cuales 34536 son válidas para optimización
+2025-04-05 17:02:24,976 - optimizacion.modelo - INFO - Construyendo modelo de optimización...
+2025-04-05 17:02:29,020 - optimizacion.modelo - INFO - Modelo construido con 34536 combinaciones de ofertas válidas
+2025-04-05 17:02:29,025 - optimizacion.solver - INFO - Resolviendo modelo de optimización (tiempo límite: 600 segundos)...
+2025-04-05 17:02:29,025 - optimizacion.solver - INFO - Ruta del solver CBC: C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\CBC\cbc.exe
+2025-04-05 17:02:38,993 - optimizacion.solver - INFO - Se encontró una solución óptima
+2025-04-05 17:02:39,089 - optimizacion.solver - INFO - Valor de la función objetivo: 4.352047779924905e+17
+2025-04-05 17:02:39,090 - optimizacion.modelo - INFO - Extrayendo resultados del modelo...
+2025-04-05 17:02:39,687 - optimizacion.modelo - INFO - Demanda total: 7986041719.00 kWh
+2025-04-05 17:02:39,688 - optimizacion.modelo - INFO - Energía asignada total: 1331608866.39 kWh
+2025-04-05 17:02:39,688 - optimizacion.modelo - INFO - Déficit total: 5608232855.25 kWh
+2025-04-05 17:02:39,688 - optimizacion.modelo - INFO - Porcentaje cubierto: 16.67%
+2025-04-05 17:02:39,688 - optimizacion.modelo - INFO - Porcentaje déficit: 70.23%
+2025-04-05 17:02:44,050 - core.evaluacion - INFO - Hoja 'DEMANDA ASIGNADA OP1_Wide- BTG' creada en el archivo 'C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\output\resultado_ofertas.xlsx'
+2025-04-05 17:02:44,151 - core.evaluacion - INFO - Hoja 'DEMANDA ASIGNADA OP1_Wide -AES' creada en el archivo 'C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\output\resultado_ofertas.xlsx'
+2025-04-05 17:02:58,009 - core.evaluacion - INFO - Asignaciones exportadas correctamente a C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\output\resultado_ofertas.xlsx
+2025-04-05 17:03:11,595 - core.evaluacion - INFO - Hoja 'DEMANDA FALTANTE' creada en el archivo 'C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\output\resultado_ofertas.xlsx'
+2025-04-05 17:03:35,337 - core.evaluacion - INFO - Estadísticas calculadas correctamente

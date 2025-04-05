@@ -6,51 +6,30 @@ Incluye funciones para evaluar ofertas y preparar datos para el modelo de optimi
 import pandas as pd
 import logging
 from pathlib import Path
+from core.utils import verificar_archivo_existe, leer_excel_seguro
 
 logger = logging.getLogger(__name__)
 
-def evaluar_ofertas_para_optimizacion(ofertas_df):
+def evaluar_ofertas_para_optimizacion(archivo_ofertas):
     """
-    Filtra y procesa las ofertas para prepararlas para el proceso de optimización.
+    Lee el archivo de ofertas y prepara los datos para la optimización.
     
     Args:
-        ofertas_df (DataFrame): DataFrame con las ofertas evaluadas
+        archivo_ofertas (Path): Ruta al archivo Excel con las ofertas procesadas
         
     Returns:
-        DataFrame: DataFrame con las ofertas aptas para optimización
+        DataFrame: DataFrame con las ofertas evaluadas, o None en caso de error
     """
+    logger.info(f"Evaluando ofertas para optimización desde {archivo_ofertas}")
+    
+    # Usar la función existente para leer el archivo
+    ofertas_df = leer_ofertas_evaluadas(archivo_ofertas)
+    
     if ofertas_df.empty:
-        logger.warning("No hay ofertas para evaluar")
-        return pd.DataFrame()
-    
-    # Verificar que las columnas necesarias existen
-    columnas_requeridas = ['CÓDIGO OFERTA', 'FECHA', 'Atributo', 'CANTIDAD', 
-                         'PRECIO INDEXADO', 'EVALUACIÓN']
-    
-    if not all(col in ofertas_df.columns for col in columnas_requeridas):
-        logger.error("El DataFrame de ofertas no contiene todas las columnas requeridas")
-        return pd.DataFrame()
-    
-    # Filtrar ofertas que cumplen los criterios
-    # Suponiendo que EVALUACIÓN es 1 para ofertas que cumplen
-    ofertas_filtradas = ofertas_df[ofertas_df['EVALUACIÓN'] == 1].copy()
-    
-    # Verificar que haya ofertas después del filtrado
-    if ofertas_filtradas.empty:
-        logger.warning("No hay ofertas que cumplan los criterios de evaluación")
-        return pd.DataFrame()
-    
-    # Filtrar solo las columnas necesarias para la optimización
-    cols_optimizacion = ['CÓDIGO OFERTA', 'FECHA', 'Atributo', 'CANTIDAD', 'PRECIO INDEXADO']
-    ofertas_optimizacion = ofertas_filtradas[cols_optimizacion].copy()
-    
-    # Verificar si hay NaN o valores nulos
-    if ofertas_optimizacion.isnull().any().any():
-        logger.warning("Hay valores nulos en las ofertas filtradas para optimización")
-        # Puedes decidir si completar los nulos o eliminar esas filas
-    
-    logger.info(f"Se han preparado {len(ofertas_optimizacion)} ofertas para optimización")
-    return ofertas_optimizacion
+        logger.warning("No hay ofertas válidas para optimización")
+        return None
+        
+    return ofertas_df
 
 def calcular_estadisticas_ofertas(ofertas_df):
     """
@@ -70,13 +49,35 @@ def calcular_estadisticas_ofertas(ofertas_df):
     
     # Estadísticas por oferta
     for oferta in ofertas_df["CÓDIGO OFERTA"].unique():
+        if oferta == "SIN ASIGNACIÓN":
+            continue
+            
         df_of = ofertas_df[ofertas_df["CÓDIGO OFERTA"] == oferta]
-        total_asignado = df_of["CANTIDAD"].sum()
+        
+        # Determinar la columna que contiene la asignación (podría ser CANTIDAD o ENERGÍA ASIGNADA)
+        if "ENERGÍA ASIGNADA" in df_of.columns:
+            total_asignado = df_of["ENERGÍA ASIGNADA"].sum()
+            precio_columna = "PRECIO"
+        else:
+            total_asignado = df_of["CANTIDAD"].sum()
+            precio_columna = "PRECIO INDEXADO"
+        
         precio_promedio = 0
         
-        # Calcular precio promedio ponderado si hay precios indexados
-        if "PRECIO INDEXADO" in df_of.columns and not df_of["PRECIO INDEXADO"].isnull().all():
-            precio_promedio = (df_of["CANTIDAD"] * df_of["PRECIO INDEXADO"]).sum() / total_asignado if total_asignado > 0 else 0
+        # Calcular precio promedio ponderado
+        if precio_columna in df_of.columns and not df_of[precio_columna].isnull().all():
+            precio_ponderado_sum = 0
+            asignacion_sum = 0
+            
+            for _, row in df_of.iterrows():
+                precio = row.get(precio_columna, 0)
+                asignacion = row.get("ENERGÍA ASIGNADA" if "ENERGÍA ASIGNADA" in df_of.columns else "CANTIDAD", 0)
+                
+                if pd.notna(precio) and pd.notna(asignacion) and asignacion > 0:
+                    precio_ponderado_sum += precio * asignacion
+                    asignacion_sum += asignacion
+            
+            precio_promedio = precio_ponderado_sum / asignacion_sum if asignacion_sum > 0 else 0
         
         stats.append({
             "TIPO": "OFERTA",
@@ -86,16 +87,41 @@ def calcular_estadisticas_ofertas(ofertas_df):
             "COSTO TOTAL": total_asignado * precio_promedio
         })
     
+    # Estadísticas generales
+    if stats:
+        total_general = sum(s["TOTAL ASIGNADO (kWh)"] for s in stats)
+        costo_general = sum(s["COSTO TOTAL"] for s in stats)
+        precio_promedio_general = costo_general / total_general if total_general > 0 else 0
+        
+        stats.append({
+            "TIPO": "TOTAL",
+            "IDENTIFICADOR": "TODAS LAS OFERTAS",
+            "TOTAL ASIGNADO (kWh)": total_general,
+            "PRECIO PROMEDIO": precio_promedio_general,
+            "COSTO TOTAL": costo_general
+        })
+    
     # Estadísticas por fecha si existe la columna FECHA
     if "FECHA" in ofertas_df.columns:
         for fecha in ofertas_df["FECHA"].unique():
             df_fecha = ofertas_df[ofertas_df["FECHA"] == fecha]
-            total_cantidad = df_fecha["CANTIDAD"].sum()
+            
+            if "ENERGÍA ASIGNADA" in df_fecha.columns:
+                total_cantidad = df_fecha[df_fecha["CÓDIGO OFERTA"] != "SIN ASIGNACIÓN"]["ENERGÍA ASIGNADA"].sum()
+                deficit = df_fecha["DÉFICIT"].sum() if "DÉFICIT" in df_fecha.columns else 0
+                demanda = df_fecha["DEMANDA TOTAL"].sum() if "DEMANDA TOTAL" in df_fecha.columns else total_cantidad
+            else:
+                total_cantidad = df_fecha["CANTIDAD"].sum()
+                deficit = 0
+                demanda = total_cantidad
             
             stats.append({
                 "TIPO": "FECHA",
                 "IDENTIFICADOR": fecha,
-                "TOTAL (kWh)": total_cantidad,
+                "TOTAL ASIGNADO (kWh)": total_cantidad,
+                "DEMANDA (kWh)": demanda,
+                "DÉFICIT (kWh)": deficit,
+                "COBERTURA (%)": (total_cantidad / demanda * 100) if demanda > 0 else 0
             })
     
     logger.info("Estadísticas calculadas correctamente")
@@ -128,41 +154,47 @@ def exportar_asignaciones_por_oferta(asignaciones_df, output_file):
             logger.warning("No hay asignaciones válidas para exportar")
             return False
         
+        # Determinar las columnas para usar en el pivot
+        hora_col = "HORA" if "HORA" in df.columns else "Atributo"
+        valor_col = "ENERGÍA ASIGNADA" if "ENERGÍA ASIGNADA" in df.columns else "CANTIDAD"
+        
         # Usar ExcelWriter para crear/modificar el archivo
         with pd.ExcelWriter(output_file, engine="openpyxl", mode="a", 
                           if_sheet_exists="replace") as writer:
             # Para cada oferta, crear una hoja
             for oferta in df["CÓDIGO OFERTA"].unique():
-                for it in range(1, 3):  # Iteraciones (IT1, IT2)
-                    df_oferta = df[df["CÓDIGO OFERTA"] == oferta].copy()
-                    
-                    # Pivotar los datos para tener fechas en filas y horas en columnas
-                    pivot_df = df_oferta.pivot_table(
-                        index="FECHA", 
-                        columns="Atributo", 
-                        values="CANTIDAD",
-                        fill_value=0
-                    )
-                    
-                    # Asegurar que tenemos todas las columnas de 1 a 24
-                    for hora in range(1, 25):
-                        if hora not in pivot_df.columns:
-                            pivot_df[hora] = 0
-                    
-                    # Ordenar las columnas
-                    pivot_df = pivot_df.reindex(columns=range(1, 25))
-                    
-                    # Ordenar por fecha
-                    pivot_df = pivot_df.sort_index()
-                    
-                    # Crear el nombre de la hoja
-                    sheet_name = f"DEMANDA ASIGNADA {oferta} IT{it}"
-                    if len(sheet_name) > 31:  # Excel limita nombres de hojas a 31 caracteres
-                        sheet_name = sheet_name[:31]
-                    
-                    # Exportar a Excel
-                    pivot_df.to_excel(writer, sheet_name=sheet_name)
-                    logger.info(f"Hoja '{sheet_name}' creada en el archivo '{output_file}'")
+                df_oferta = df[df["CÓDIGO OFERTA"] == oferta].copy()
+                
+                # Pivotar los datos para tener fechas en filas y horas en columnas
+                pivot_df = df_oferta.pivot_table(
+                    index="FECHA", 
+                    columns=hora_col, 
+                    values=valor_col,
+                    fill_value=0
+                )
+                
+                # Asegurar que tenemos todas las columnas de 1 a 24
+                for hora in range(1, 25):
+                    if hora not in pivot_df.columns:
+                        pivot_df[hora] = 0
+                
+                # Ordenar las columnas
+                pivot_df = pivot_df.reindex(columns=range(1, 25))
+                
+                # Ordenar por fecha
+                pivot_df = pivot_df.sort_index()
+                
+                # Crear el nombre de la hoja
+                sheet_name = f"DEMANDA ASIGNADA {oferta}"
+                if len(sheet_name) > 31:  # Excel limita nombres de hojas a 31 caracteres
+                    sheet_name = sheet_name[:31]
+                
+                # Exportar a Excel
+                pivot_df.to_excel(writer, sheet_name=sheet_name)
+                logger.info(f"Hoja '{sheet_name}' creada en el archivo '{output_file}'")
+            
+            # Exportar también la tabla de asignaciones completa
+            asignaciones_df.to_excel(writer, sheet_name="ASIGNACIONES", index=False)
         
         logger.info(f"Asignaciones exportadas correctamente a {output_file}")
         return True
@@ -195,7 +227,26 @@ def crear_hoja_demanda_faltante(asignaciones_df, output_file):
         
         if df_faltante.empty:
             logger.info("No hay demanda faltante para reportar")
+            
+            # Crear mensaje de éxito
+            mensaje_df = pd.DataFrame({
+                "MENSAJE": ["No hay demanda faltante. Toda la demanda fue satisfecha."]
+            })
+            
+            # Guardar en Excel
+            with pd.ExcelWriter(output_file, engine="openpyxl", mode="a", 
+                              if_sheet_exists="replace") as writer:
+                mensaje_df.to_excel(writer, sheet_name="DEMANDA FALTANTE", index=False)
+                logger.info(f"Hoja 'DEMANDA FALTANTE' creada en el archivo '{output_file}'")
+            
             return True
+        
+        # Calcular porcentaje de déficit
+        if "DEMANDA TOTAL" in df_faltante.columns:
+            df_faltante["PORCENTAJE DÉFICIT"] = df_faltante.apply(
+                lambda row: (row["DÉFICIT"] / row["DEMANDA TOTAL"] * 100) if row["DEMANDA TOTAL"] > 0 else 0,
+                axis=1
+            )
         
         # Guardar en Excel
         with pd.ExcelWriter(output_file, engine="openpyxl", mode="a", 
@@ -220,6 +271,11 @@ def leer_ofertas_evaluadas(archivo_ofertas, sheet_name="CANTIDADES Y PRECIOS"):
         DataFrame: DataFrame con las ofertas evaluadas
     """
     try:
+        # Verificar que el archivo existe
+        if not verificar_archivo_existe(archivo_ofertas):
+            logger.error(f"No se encontró el archivo de ofertas: {archivo_ofertas}")
+            return pd.DataFrame()
+            
         # Leer el archivo Excel
         xls = pd.ExcelFile(archivo_ofertas)
         if sheet_name not in xls.sheet_names:
@@ -235,7 +291,7 @@ def leer_ofertas_evaluadas(archivo_ofertas, sheet_name="CANTIDADES Y PRECIOS"):
         
         # Convertir tipos de datos
         if "FECHA" in df.columns:
-            df['FECHA'] = pd.to_datetime(df['FECHA'], format="%d/%m/%Y").dt.date
+            df['FECHA'] = pd.to_datetime(df['FECHA'], errors='coerce').dt.date
         
         if "Atributo" in df.columns:
             df['Atributo'] = df['Atributo'].astype(int)
@@ -248,15 +304,20 @@ def leer_ofertas_evaluadas(archivo_ofertas, sheet_name="CANTIDADES Y PRECIOS"):
         
         # Filtrar ofertas válidas
         if "PRECIO INDEXADO" in df.columns and "CANTIDAD" in df.columns:
-            df = df.dropna(subset=['PRECIO INDEXADO'])
-            df = df[df['CANTIDAD'] > 0]
+            df_filtrada = df.dropna(subset=['PRECIO INDEXADO'])
+            df_filtrada = df_filtrada[df_filtrada['CANTIDAD'] > 0]
         
-        # Filtrar ofertas que cumplen evaluación si existe esa columna
-        if "EVALUACIÓN" in df.columns:
-            df = df[df['EVALUACIÓN'] == 1]  # Suponiendo que 1 = cumple
-        
-        logger.info(f"Se leyeron {len(df)} ofertas evaluadas de {archivo_ofertas}")
-        return df
+            # Filtrar ofertas que cumplen evaluación si existe esa columna
+            if "EVALUACIÓN" in df_filtrada.columns:
+                df_filtrada = df_filtrada[df_filtrada['EVALUACIÓN'] == 1]  # Suponiendo que 1 = cumple
+            
+            logger.info(f"Se leyeron {len(df)} ofertas, de las cuales {len(df_filtrada)} son válidas para optimización")
+            print(f"Se leyeron {len(df)} ofertas, de las cuales {len(df_filtrada)} son válidas para optimización")
+            
+            return df_filtrada
+        else:
+            return df
     except Exception as e:
         logger.error(f"Error al leer ofertas evaluadas: {e}")
+        print(f"Error al leer ofertas evaluadas: {e}")
         return pd.DataFrame()
