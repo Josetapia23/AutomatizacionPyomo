@@ -90,7 +90,14 @@ def leer_excel_seguro(archivo, hoja=0, **kwargs):
         DataFrame: DataFrame con los datos leídos, o DataFrame vacío en caso de error
     """
     try:
-        return pd.read_excel(archivo, sheet_name=hoja, **kwargs)
+        # Asegurarse de que sheet_name no esté duplicado en kwargs
+        if 'sheet_name' in kwargs:
+            logger.warning("Se está sobreescribiendo el parámetro 'sheet_name' en leer_excel_seguro")
+            # Usar el sheet_name proporcionado en kwargs, no el parámetro hoja
+            return pd.read_excel(archivo, **kwargs)
+        else:
+            # Usar el parámetro hoja como sheet_name
+            return pd.read_excel(archivo, sheet_name=hoja, **kwargs)
     except Exception as e:
         logger.error(f"Error al leer {archivo} (hoja: {hoja}): {e}")
         return pd.DataFrame()
