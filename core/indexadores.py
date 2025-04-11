@@ -3,6 +3,7 @@ Módulo para el manejo de indexadores y sus proyecciones.
 Incluye funciones para calcular, proyectar y gestionar datos de indexadores.
 """
 
+import math
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -206,5 +207,248 @@ def crear_proyeccion_indexadores(datos_iniciales=DATOS_INICIALES, carpeta_oferta
         logger.info("Proyección de indexadores creada correctamente")
     else:
         logger.error("Error al guardar la proyección de indexadores")
+    
+    return resultado
+
+def crear_proyeccion_precio_sicep(datos_iniciales=DATOS_INICIALES):
+    """
+    Crea o actualiza la hoja 'PROYECCIÓN PRECIO SICEP' en el archivo de datos iniciales,
+    proyectando los precios mensuales a partir de los datos anuales.
+    
+    Args:
+        datos_iniciales (Path): Ruta al archivo de datos iniciales
+        
+    Returns:
+        bool: True si la operación fue exitosa, False en caso contrario
+    """
+    logger.info(f"Creando proyección de precios SICEP en {datos_iniciales}")
+    
+    # Verificar que el archivo de datos iniciales existe
+    if not verificar_archivo_existe(datos_iniciales):
+        logger.error(f"No se encontró el archivo de datos iniciales: {datos_iniciales}")
+        return False
+    
+    # Eliminar la hoja si ya existe
+    eliminar_hoja_si_existe(datos_iniciales, "PROYECCIÓN PRECIO SICEP")
+    
+    # Leer los datos de precios SICEP (precios anuales)
+    try:
+        sicep_anual_df = leer_excel_seguro(datos_iniciales, "PRECIO SICEP")
+        if sicep_anual_df.empty:
+            logger.error("No se pudo leer la hoja PRECIO SICEP con los datos anuales")
+            return False
+        
+        # Buscar columnas de año y precio
+        año_col = None
+        precio_col = None
+        
+        for col_name in sicep_anual_df.columns:
+            col_str = str(col_name).upper()
+            if "AÑO" in col_str or "ANO" in col_str or "YEAR" in col_str:
+                año_col = col_name
+            elif "PRECIO" in col_str or "PRICE" in col_str:
+                precio_col = col_name
+        
+        # Si no se encontraron, usar las dos primeras columnas
+        if año_col is None:
+            año_col = sicep_anual_df.columns[0]
+        if precio_col is None:
+            if len(sicep_anual_df.columns) > 1:
+                precio_col = sicep_anual_df.columns[1]
+            else:
+                logger.error("No hay suficientes columnas en la hoja PRECIO SICEP")
+                return False
+        
+        # Asegurarse de que los años sean numéricos
+        sicep_anual_df[año_col] = pd.to_numeric(sicep_anual_df[año_col], errors='coerce')
+        sicep_anual_df = sicep_anual_df.dropna(subset=[año_col])
+        
+        # Extraer los precios por año
+        precios_por_año = {}
+        for _, row in sicep_anual_df.iterrows():
+            año = int(row[año_col])  # Convertir a entero para usar como clave
+            precio = float(row[precio_col])  # Convertir a float para cálculos
+            precios_por_año[año] = precio
+            
+        if not precios_por_año:
+            logger.error("No se encontraron precios válidos en la hoja PRECIO SICEP")
+            return False
+            
+        logger.info(f"Precios por año: {precios_por_año}")
+        print(f"Precios por año encontrados: {precios_por_año}")
+        
+    except Exception as e:
+        logger.error(f"Error al leer PRECIO SICEP: {e}")
+        print(f"Error al leer PRECIO SICEP: {e}")
+        return False
+    
+    # Leer indexadores y proyección
+    try:
+        indexadores_df = leer_excel_seguro(datos_iniciales, "INDEXADORES")
+        if indexadores_df.empty:
+            logger.error("No se pudo leer la hoja INDEXADORES")
+            return False
+        
+        proyeccion_indexadores_df = leer_excel_seguro(datos_iniciales, "PROYECCIÓN INDEXADORES")
+        if proyeccion_indexadores_df.empty:
+            logger.error("No se pudo leer la hoja PROYECCIÓN INDEXADORES")
+            return False
+        
+        # Convertir fechas
+        indexadores_df['fechaoperacion'] = pd.to_datetime(indexadores_df['fechaoperacion'], format="%d/%m/%Y", errors='coerce').dt.date
+        proyeccion_indexadores_df['fechaoperacion'] = pd.to_datetime(proyeccion_indexadores_df['fechaoperacion'], format="%d/%m/%Y", errors='coerce').dt.date
+    except Exception as e:
+        logger.error(f"Error al leer indexadores: {e}")
+        return False
+    
+    # Solicitar fecha base
+    print("\nLa fecha base es necesaria para calcular correctamente los precios mensuales del SICEP.")
+    print("Esta fecha es el punto de referencia desde el cual se realizarán las proyecciones.")
+    
+    fecha_base_str = solicitar_input_seguro(
+        "\nIngrese la fecha base para el SICEP (formato DD/MM/YYYY, donde DD debe ser 01): ",
+        tipo=str,
+        validacion=lambda x: len(x.split('/')) == 3 and x.split('/')[0] == '01',
+        mensaje_error="La fecha debe estar en formato DD/MM/YYYY y el día debe ser 01."
+    )
+    
+    try:
+        fecha_base = datetime.strptime(fecha_base_str, "%d/%m/%Y").date()
+    except ValueError:
+        logger.error(f"Formato de fecha incorrecto: {fecha_base_str}")
+        return False
+    
+    # Obtener el IPP base
+    ipp_base = None
+    
+    # Buscar en indexadores
+    base_en_indexadores = indexadores_df[indexadores_df['fechaoperacion'] == fecha_base]
+    if not base_en_indexadores.empty:
+        ipp_base = base_en_indexadores['oferta_interna_prov'].iloc[0]
+    else:
+        # Buscar en proyección
+        base_en_proyeccion = proyeccion_indexadores_df[proyeccion_indexadores_df['fechaoperacion'] == fecha_base]
+        if not base_en_proyeccion.empty:
+            ipp_base = base_en_proyeccion['oferta_interna_prov'].iloc[0]
+    
+    if ipp_base is None:
+        logger.error(f"No se encontró el IPP base para la fecha {fecha_base}")
+        return False
+    
+    logger.info(f"IPP base en fecha {fecha_base}: {ipp_base}")
+    print(f"IPP base en fecha {fecha_base}: {ipp_base}")
+    
+    # Buscar el precio base (precio del año correspondiente a la fecha base o precio mínimo)
+    año_base = fecha_base.year
+    if año_base in precios_por_año:
+        precio_base = precios_por_año[año_base]
+    else:
+        # Si no hay precio para el año base, buscar el precio del año más cercano
+        años = list(precios_por_año.keys())
+        años_cercanos = [año for año in años if año >= año_base]
+        if años_cercanos:
+            año_cercano = min(años_cercanos)
+            precio_base = precios_por_año[año_cercano]
+        else:
+            # Si no hay años posteriores, usar el último año disponible
+            año_cercano = max(años)
+            precio_base = precios_por_año[año_cercano]
+    
+    logger.info(f"Precio base para {fecha_base}: {precio_base}")
+    print(f"Precio base para {fecha_base}: {precio_base}")
+    
+    # Determinar el rango de fechas
+    fecha_min = fecha_base  # La fecha mínima es la fecha base
+    fecha_max = max(proyeccion_indexadores_df['fechaoperacion'])
+    
+    # Crear proyección de precios
+    proyeccion_sicep = []
+    
+    # Primer registro (fecha base)
+    proyeccion_sicep.append({
+        "FECHA": fecha_base,
+        "IPP": ipp_base,
+        "PRECIO": precio_base
+    })
+    
+    # Generar meses siguientes
+    fecha_actual = fecha_base
+    if fecha_actual.month == 12:
+        fecha_siguiente = fecha_actual.replace(year=fecha_actual.year + 1, month=1)
+    else:
+        fecha_siguiente = fecha_actual.replace(month=fecha_actual.month + 1)
+    
+    while fecha_siguiente <= fecha_max:
+        # Obtener IPP para la fecha siguiente
+        ipp_siguiente = None
+        
+        # Buscar en indexadores
+        siguiente_en_indexadores = indexadores_df[indexadores_df['fechaoperacion'] == fecha_siguiente]
+        if not siguiente_en_indexadores.empty:
+            ipp_siguiente = siguiente_en_indexadores['oferta_interna_prov'].iloc[0]
+        else:
+            # Buscar en proyección
+            siguiente_en_proyeccion = proyeccion_indexadores_df[proyeccion_indexadores_df['fechaoperacion'] == fecha_siguiente]
+            if not siguiente_en_proyeccion.empty:
+                ipp_siguiente = siguiente_en_proyeccion['oferta_interna_prov'].iloc[0]
+        
+        if ipp_siguiente is None:
+            logger.warning(f"No se encontró IPP para fecha {fecha_siguiente}, saltando...")
+            # Avanzar al siguiente mes
+            fecha_actual = fecha_siguiente
+            if fecha_actual.month == 12:
+                fecha_siguiente = fecha_actual.replace(year=fecha_actual.year + 1, month=1)
+            else:
+                fecha_siguiente = fecha_actual.replace(month=fecha_actual.month + 1)
+            continue
+        
+        # Obtener el precio del mes anterior
+        precio_anterior = proyeccion_sicep[-1]["PRECIO"]
+        ipp_anterior = proyeccion_sicep[-1]["IPP"]
+        
+        # Calcular nuevo precio usando la fórmula: precio_anterior * ipp_siguiente / ipp_anterior
+        # Y redondear hacia arriba a 2 decimales (REDONDEAR.MAS en Excel)
+        precio_siguiente = precio_anterior * (ipp_siguiente / ipp_anterior)
+        precio_siguiente = math.ceil(precio_siguiente * 100) / 100  # Redondear hacia arriba a 2 decimales
+        
+        # Verificar si es 1 de enero y el año está en los precios anuales
+        if fecha_siguiente.day == 1 and fecha_siguiente.month == 1 and fecha_siguiente.year in precios_por_año:
+            # Para el 1 de enero usar el precio del año correspondiente
+            precio_siguiente = precios_por_año[fecha_siguiente.year]
+        
+        # Agregar a la proyección
+        proyeccion_sicep.append({
+            "FECHA": fecha_siguiente,
+            "IPP": ipp_siguiente,
+            "PRECIO": precio_siguiente
+        })
+        
+        # Avanzar al siguiente mes
+        fecha_actual = fecha_siguiente
+        if fecha_actual.month == 12:
+            fecha_siguiente = fecha_actual.replace(year=fecha_actual.year + 1, month=1)
+        else:
+            fecha_siguiente = fecha_actual.replace(month=fecha_actual.month + 1)
+    
+    # Convertir a DataFrame
+    proyeccion_sicep_df = pd.DataFrame(proyeccion_sicep)
+    
+    if proyeccion_sicep_df.empty:
+        logger.error("No se generaron datos para la proyección de precios SICEP")
+        return False
+    
+    # Guardar en el archivo
+    resultado = guardar_excel_seguro(
+        proyeccion_sicep_df, 
+        datos_iniciales, 
+        "PROYECCIÓN PRECIO SICEP",
+        index=False
+    )
+    
+    if resultado:
+        logger.info(f"Proyección de precios SICEP creada correctamente con {len(proyeccion_sicep)} registros")
+        print(f"Proyección de precios SICEP creada correctamente con {len(proyeccion_sicep)} registros")
+    else:
+        logger.error("Error al guardar la proyección de precios SICEP")
     
     return resultado

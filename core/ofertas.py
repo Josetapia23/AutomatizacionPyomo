@@ -19,15 +19,14 @@ from core.utils import (
     solicitar_input_seguro,
     fecha_a_texto
 )
-from core.indexadores import calcular_numerador, calcular_denominador
+from core.indexadores import calcular_numerador, calcular_denominador, crear_proyeccion_precio_sicep
 
 logger = logging.getLogger(__name__)
 
 def procesar_precio_sicep(datos_iniciales=DATOS_INICIALES):
     """
-    Procesa la hoja PRECIO SICEP del archivo de datos iniciales.
-    Si la hoja no existe, la crea con valores calculados siguiendo 
-    el formato del archivo de ejemplo.
+    Procesa los precios SICEP y crea un diccionario para su uso en la evaluación de ofertas.
+    Ahora usa la hoja 'PROYECCIÓN PRECIO SICEP' si existe, o la crea si no existe.
     
     Args:
         datos_iniciales (Path): Ruta al archivo de datos iniciales
@@ -42,153 +41,54 @@ def procesar_precio_sicep(datos_iniciales=DATOS_INICIALES):
         logger.error(f"No se encontró el archivo de datos iniciales: {datos_iniciales}")
         return None
     
-    # Verificar si la hoja PRECIO SICEP existe
-    if verificar_hoja_existe(datos_iniciales, "PRECIO SICEP"):
-        try:
-            # Leer la hoja PRECIO SICEP
-            sicep_df = leer_excel_seguro(datos_iniciales, "PRECIO SICEP")
-            if sicep_df.empty:
-                logger.warning("La hoja PRECIO SICEP está vacía, se creará con valores calculados")
-            else:
-                # Convertir la columna FECHA a datetime.date
-                sicep_df['FECHA'] = pd.to_datetime(sicep_df['FECHA'], format="%d/%m/%Y", errors='coerce').dt.date
-                
-                # Verificar si hay fechas inválidas
-                if sicep_df['FECHA'].isna().any():
-                    logger.warning("Hay fechas en formato incorrecto en la hoja PRECIO SICEP")
-                    sicep_df = sicep_df.dropna(subset=['FECHA'])
-                
-                # Crear columna auxiliar para agrupar por año-mes si no existe
-                if 'AUX' not in sicep_df.columns:
-                    sicep_df['AUX'] = sicep_df['FECHA'].apply(lambda d: f"{d.year}-{d.month}")
-                
-                # Crear diccionario con los valores de PRECIO
-                sicep_dict = dict(zip(sicep_df['AUX'], sicep_df['PRECIO']))
-                
-                logger.info(f"PRECIO SICEP procesado correctamente: {len(sicep_dict)} períodos")
-                print(f"PRECIO SICEP procesado correctamente: {len(sicep_dict)} períodos")
-                
-                return sicep_dict
-        except Exception as e:
-            logger.error(f"Error al leer la hoja PRECIO SICEP: {e}")
-            # Continuamos para crear la hoja
+    # Verificar si la proyección ya existe
+    if not verificar_hoja_existe(datos_iniciales, "PROYECCIÓN PRECIO SICEP"):
+        logger.info("No se encontró la hoja PROYECCIÓN PRECIO SICEP, se creará...")
+        
+        # Verificar si existe la hoja con precios anuales
+        if not verificar_hoja_existe(datos_iniciales, "PRECIO SICEP"):
+            logger.error("No se encontró la hoja PRECIO SICEP con los precios anuales")
+            return None
+        
+        # Llamar a la función para crear la proyección
+        if not crear_proyeccion_precio_sicep(datos_iniciales):
+            logger.error("No se pudo crear la proyección de precios SICEP")
+            return None
     
-    # Si llegamos aquí, necesitamos crear la hoja PRECIO SICEP
-    logger.info("Creando hoja PRECIO SICEP...")
-    
-    # Solicitar la fecha base al usuario
-    fecha_base_str = solicitar_input_seguro(
-        "Ingrese la fecha base del SICEP (formato DD/MM/YYYY): ",
-        tipo=str,
-        validacion=lambda x: len(x.split('/')) == 3,
-        mensaje_error="Formato de fecha incorrecto. Use DD/MM/YYYY."
-    )
-    
-    # Convertir la fecha base a objeto datetime
+    # Leer la proyección de precios SICEP
     try:
-        fecha_base = datetime.strptime(fecha_base_str, "%d/%m/%Y").date()
-    except ValueError:
-        logger.error(f"Formato de fecha incorrecto: {fecha_base_str}")
-        return None
-    
-    # Solicitar el valor IPP base
-    ipp_base = solicitar_input_seguro(
-        "Ingrese el valor IPP base (ej. 178.5): ",
-        tipo=float,
-        validacion=lambda x: x > 0,
-        mensaje_error="El valor IPP debe ser un número positivo."
-    )
-    
-    # Solicitar el valor PRECIO base
-    precio_base = solicitar_input_seguro(
-        "Ingrese el valor PRECIO base (ej. 330): ",
-        tipo=float,
-        validacion=lambda x: x > 0,
-        mensaje_error="El valor PRECIO debe ser un número positivo."
-    )
-    
-    # Crear fechas para la proyección
-    fechas = []
-    
-    # Intenta obtener fechas de DEMANDA
-    try:
-        demanda_df = leer_excel_seguro(datos_iniciales, "DEMANDA")
-        if not demanda_df.empty and 'FECHA' in demanda_df.columns:
-            # Convertir fechas explícitamente
-            fechas_temp = pd.to_datetime(demanda_df['FECHA']).dt.date
-            # Obtener el primer día de cada mes único
-            fechas_mes = set()
-            for fecha in fechas_temp:
-                primer_dia = datetime(fecha.year, fecha.month, 1).date()
-                fechas_mes.add(primer_dia)
-            fechas = sorted(list(fechas_mes))
-    except Exception as e:
-        logger.warning(f"Error al leer fechas de DEMANDA: {e}")
-    
-    # Si no se obtuvieron fechas, crear fechas genéricas para 24 meses desde la fecha base
-    if not fechas:
-        fechas = []
-        fecha_actual = fecha_base
-        for _ in range(24):  # Crear 24 meses
-            fechas.append(fecha_actual)
-            # Avanzar al primer día del mes siguiente
-            if fecha_actual.month == 12:
-                fecha_actual = datetime(fecha_actual.year + 1, 1, 1).date()
-            else:
-                fecha_actual = datetime(fecha_actual.year, fecha_actual.month + 1, 1).date()
-    
-    # Crear DataFrame para PRECIO SICEP
-    sicep_data = []
-    
-    # Valor inicial de IPP y PRECIO
-    ipp_actual = ipp_base
-    precio_actual = precio_base
-    
-    # Incremento mensual aproximado (0.5% para IPP, 0.33% para PRECIO)
-    incremento_ipp = 0.005  # 0.5% mensual
-    incremento_precio = 0.0033  # 0.33% mensual
-    
-    for fecha in fechas:
-        # Calcular IPP y PRECIO basado en incrementos mensuales
-        meses_diff = (fecha.year - fecha_base.year) * 12 + fecha.month - fecha_base.month
+        sicep_df = leer_excel_seguro(datos_iniciales, "PROYECCIÓN PRECIO SICEP")
+        if sicep_df.empty:
+            logger.error("La hoja PROYECCIÓN PRECIO SICEP está vacía")
+            return None
         
-        if meses_diff == 0:
-            # Primer mes (valores base)
-            ipp = ipp_base
-            precio = precio_base
-        else:
-            # Para meses posteriores, aplicar incremento
-            ipp = ipp_base * (1 + incremento_ipp * meses_diff)
-            precio = precio_base * (1 + incremento_precio * meses_diff)
+        # Convertir la columna FECHA a datetime.date
+        sicep_df['FECHA'] = pd.to_datetime(sicep_df['FECHA'], errors='coerce').dt.date
         
-        # Crear entrada para este mes
-        sicep_data.append({
-            "FECHA": fecha,
-            "IPP": round(ipp, 2),
-            "PRECIO": round(precio, 2),
-            "AUX": f"{fecha.year}-{fecha.month}"
-        })
-    
-    # Crear DataFrame
-    sicep_df = pd.DataFrame(sicep_data)
-    
-    # Guardar en archivo
-    resultado = guardar_excel_seguro(
-        sicep_df,
-        datos_iniciales,
-        "PRECIO SICEP",
-        index=False
-    )
-    
-    if resultado:
-        logger.info("Hoja PRECIO SICEP creada y guardada correctamente")
+        # Verificar si hay fechas inválidas
+        if sicep_df['FECHA'].isna().any():
+            logger.warning("Hay fechas en formato incorrecto en la hoja PROYECCIÓN PRECIO SICEP")
+            sicep_df = sicep_df.dropna(subset=['FECHA'])
         
-        # Crear el diccionario de retorno con valores de PRECIO
+        # Verificar la estructura de columnas
+        if 'PRECIO' not in sicep_df.columns:
+            logger.error("No se encontró la columna 'PRECIO' en la hoja PROYECCIÓN PRECIO SICEP")
+            return None
+            
+        # Crear columna auxiliar para agrupar por año-mes
+        sicep_df['AUX'] = sicep_df['FECHA'].apply(lambda d: f"{d.year}-{d.month}")
+        
+        # Crear diccionario con los valores de PRECIO
         sicep_dict = dict(zip(sicep_df['AUX'], sicep_df['PRECIO']))
         
+        logger.info(f"PRECIO SICEP procesado correctamente: {len(sicep_dict)} períodos")
+        print(f"PRECIO SICEP procesado correctamente: {len(sicep_dict)} períodos")
+        
         return sicep_dict
-    else:
-        logger.error("Error al guardar la hoja PRECIO SICEP")
+    
+    except Exception as e:
+        logger.exception(f"Error al procesar PROYECCIÓN PRECIO SICEP: {e}")
+        print(f"Error al procesar PROYECCIÓN PRECIO SICEP: {e}")
         return None
 
 def procesar_precio_bolsa(datos_iniciales=DATOS_INICIALES):
@@ -244,7 +144,7 @@ def procesar_precio_bolsa(datos_iniciales=DATOS_INICIALES):
         logger.exception(f"Error al procesar PRECIO BOLSA: {e}")
         return None
     
-def evaluar_oferta(precio_indexado, precio_sicep, precio_bolsa, k_factor=1.5):
+def evaluar_oferta(precio_indexado, precio_sicep, precio_bolsa, constante_sicep=None):
     """
     Evalúa si una oferta cumple con los criterios establecidos.
     
@@ -252,36 +152,37 @@ def evaluar_oferta(precio_indexado, precio_sicep, precio_bolsa, k_factor=1.5):
         precio_indexado (float): Precio indexado de la oferta
         precio_sicep (float): Precio SICEP
         precio_bolsa (float): Precio BOLSA
-        k_factor (float, opcional): Factor k para la evaluación
+        constante_sicep (float, opcional): Constante para multiplicar el precio SICEP
         
     Returns:
         int: 1 si cumple, 0 si no cumple
     """
-    if (precio_indexado is None or 
-        precio_sicep is None or 
-        precio_bolsa is None):
-        return 0  # No cumple si falta algún dato
+    # Inicializar evaluación como 0 (incumple)
+    evaluacion = 0
     
-    # Se implementan dos criterios diferentes:
-    
-    # 1. Criterio original (comportamiento por defecto):
-    # Condition A: PRECIO_INDEXADO >= PRECIO_SICEP and PRECIO_INDEXADO <= PRECIO_BOLSA
-    cond_a = (precio_indexado >= precio_sicep) and (precio_indexado <= precio_bolsa)
-    # Condition B: PRECIO_INDEXADO <= PRECIO_SICEP
-    cond_b = (precio_indexado <= precio_sicep)
-    
-    if cond_a or cond_b:
-        return 1  # Cumple
-    
-    # 2. Criterio alternativo con factor k (si se especifica):
-    if k_factor != 1.5:  # Si se usa un factor k personalizado
-        # PRECIO_INDEXADO ≤ MIN(k· PRECIO_SICEP, PRECIO_BOLSA)
-        limite = min(k_factor * precio_sicep, precio_bolsa)
+    # Verificar que todos los valores necesarios estén presentes
+    if (precio_indexado is not None and 
+        precio_sicep is not None and 
+        precio_bolsa is not None):
+        
+        # Si no se proporcionó constante, solicitarla al usuario
+        if constante_sicep is None:
+            try:
+                constante_sicep = float(input("Ingrese la constante para el cálculo del precio SICEP: "))
+            except ValueError:
+                logger.warning("Valor inválido para constante SICEP, usando 1.0 como valor predeterminado")
+                constante_sicep = 1.0
+        
+        # Aplicar la constante al precio SICEP
+        precio_sicep_ajustado = precio_sicep * constante_sicep
+        
+        # Evaluación: PRECIO_INDEXADO <= min(constante_sicep * PRECIO_SICEP, PRECIO_BOLSA)
+        limite = min(precio_sicep_ajustado, precio_bolsa)
         
         if precio_indexado <= limite:
-            return 1  # Cumple
+            evaluacion = 1  # Cumple
     
-    return 0  # No cumple
+    return evaluacion
 
 def procesar_ofertas(carpeta_ofertas=OFERTAS_DIR, datos_iniciales=DATOS_INICIALES, 
                     archivo_salida=RESULTADO_OFERTAS):
@@ -308,18 +209,19 @@ def procesar_ofertas(carpeta_ofertas=OFERTAS_DIR, datos_iniciales=DATOS_INICIALE
         logger.error(f"No se encontró la carpeta de ofertas: {carpeta_ofertas}")
         return False
     
-    # Solicitar el factor k al usuario
+    # Solicitar la constante SICEP al usuario
     try:
-        k_factor = solicitar_input_seguro(
-            "Ingrese el factor k para la evaluación de ofertas (1.5 recomendado): ",
+        constante_sicep = solicitar_input_seguro(
+            "Ingrese la constante para el cálculo del precio SICEP: ",
             tipo=float,
             validacion=lambda x: x > 0,
-            mensaje_error="El factor k debe ser un número positivo."
+            mensaje_error="La constante debe ser un número positivo."
         )
+        print(f"Usando constante SICEP: {constante_sicep}")
     except Exception as e:
-        logger.warning(f"Error al solicitar factor k: {e}. Se usará el valor predeterminado de 1.5")
-        k_factor = 1.5
-        print(f"Usando factor k predeterminado: {k_factor}")
+        logger.warning(f"Error al solicitar constante SICEP: {e}. Se usará el valor predeterminado de 1.0")
+        constante_sicep = 1.0
+        print(f"Usando constante SICEP predeterminada: {constante_sicep}")
     
     # Buscar archivos de ofertas
     archivos = [f for f in os.listdir(carpeta_ofertas) if f.endswith('.xlsx')]
@@ -459,12 +361,12 @@ def procesar_ofertas(carpeta_ofertas=OFERTAS_DIR, datos_iniciales=DATOS_INICIALE
                         # Obtener PRECIO BOLSA para ese año-mes
                         precio_bolsa_val = bolsa_dict.get(fecha_aux, 0)
                         
-                        # Evaluación usando la función evaluar_oferta
+                        # Evaluación usando la función evaluar_oferta con la constante SICEP
                         evaluacion = evaluar_oferta(
                             precio_indexado,
                             precio_sicep_val,
                             precio_bolsa_val,
-                            k_factor
+                            constante_sicep
                         )
                         
                         # Construimos el diccionario en el orden que necesitamos
