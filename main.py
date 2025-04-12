@@ -25,7 +25,7 @@ from core.ofertas import procesar_ofertas, procesar_precio_sicep
 from core.evaluacion import (
     evaluar_ofertas_para_optimizacion, calcular_estadisticas_ofertas,
     exportar_asignaciones_por_oferta, crear_hoja_demanda_faltante,
-    leer_ofertas_evaluadas
+    leer_ofertas_evaluadas, exportar_resultados_por_oferta
 )
 from optimizacion.modelo import construir_modelo, extraer_resultados
 from optimizacion.solver import resolver_modelo
@@ -239,6 +239,112 @@ def procesar_ofertas_solo_tabla():
         print(f"ERROR INESPERADO: {e}")
         return False
 
+def optimizar_con_pyomo():
+    """
+    Ejecuta el proceso de optimización con Pyomo y exporta los resultados
+    en el formato específico requerido.
+    
+    Returns:
+        bool: True si el proceso fue exitoso, False en caso contrario
+    """
+    try:
+        # Leer demanda
+        print("\n=== LEYENDO DATOS DE DEMANDA ===")
+        demanda_df = leer_demanda(DATOS_INICIALES)
+        if demanda_df is None:
+            print("ERROR: No se pudo leer la demanda")
+            return False
+        
+        # Leer ofertas para optimización
+        print("\n=== LEYENDO OFERTAS EVALUADAS ===")
+        ofertas_df = leer_ofertas_evaluadas(RESULTADO_OFERTAS)
+        if ofertas_df.empty:
+            print("ERROR: No hay ofertas válidas para optimización")
+            return False
+        
+        # Construir modelo de optimización
+        print("\n=== CONSTRUYENDO MODELO DE OPTIMIZACIÓN ===")
+        model = construir_modelo(demanda_df, ofertas_df)
+        
+        # Resolver modelo
+        print("\n=== RESOLVIENDO MODELO DE OPTIMIZACIÓN ===")
+        result = resolver_modelo(model)
+        
+        if result.solver.termination_condition != 'optimal':
+            print(f"ADVERTENCIA: El solver terminó con condición: {result.solver.termination_condition}")
+            print("Es posible que no se haya encontrado una solución óptima.")
+        
+        # Extraer resultados en formato mejorado
+        print("\n=== EXTRAYENDO RESULTADOS ===")
+        resultados_dict = extraer_resultados(model)
+        
+        # Exportar resultados en el formato específico
+        print("\n=== EXPORTANDO RESULTADOS ===")
+        if not exportar_resultados_por_oferta(resultados_dict, RESULTADO_OFERTAS):
+            print("ERROR: No se pudieron exportar los resultados")
+            return False
+        
+        # Calcular estadísticas
+        print("\n=== CALCULANDO ESTADÍSTICAS ===")
+        # Obtener el DataFrame de asignaciones
+        asignaciones_df = pd.DataFrame([
+            {
+                "CÓDIGO OFERTA": oferta,
+                "FECHA": fecha,
+                "HORA": hora,
+                "ENERGÍA ASIGNADA": data["ENERGÍA ASIGNADA"],
+                "CANTIDAD OFERTADA": data["CANTIDAD OFERTADA"],
+                "PRECIO": data["PRECIO"],
+                "DEMANDA TOTAL": data["DEMANDA TOTAL"]
+            }
+            for nombre, df in resultados_dict.items()
+            if nombre.startswith("DEMANDA_ASIGNADA_")
+            for oferta in [nombre.split("_")[2]]
+            for idx, row in df.iterrows()
+            for fecha in [row["FECHA"]]
+            for hora in range(1, 25)
+            if hora in row and row[hora] > 0
+            for data in [{
+                "ENERGÍA ASIGNADA": row[hora],
+                "CANTIDAD OFERTADA": ofertas_df[
+                    (ofertas_df["CÓDIGO OFERTA"] == oferta) & 
+                    (ofertas_df["FECHA"] == fecha) & 
+                    (ofertas_df["Atributo"] == hora)
+                ]["CANTIDAD"].values[0] if not ofertas_df[
+                    (ofertas_df["CÓDIGO OFERTA"] == oferta) & 
+                    (ofertas_df["FECHA"] == fecha) & 
+                    (ofertas_df["Atributo"] == hora)
+                ].empty else 0,
+                "PRECIO": ofertas_df[
+                    (ofertas_df["CÓDIGO OFERTA"] == oferta) & 
+                    (ofertas_df["FECHA"] == fecha) & 
+                    (ofertas_df["Atributo"] == hora)
+                ]["PRECIO INDEXADO"].values[0] if not ofertas_df[
+                    (ofertas_df["CÓDIGO OFERTA"] == oferta) & 
+                    (ofertas_df["FECHA"] == fecha) & 
+                    (ofertas_df["Atributo"] == hora)
+                ].empty else 0,
+                "DEMANDA TOTAL": demanda_df[
+                    (demanda_df["FECHA"] == fecha) & 
+                    (demanda_df["HORA"] == hora)
+                ]["DEMANDA"].values[0] if not demanda_df[
+                    (demanda_df["FECHA"] == fecha) & 
+                    (demanda_df["HORA"] == hora)
+                ].empty else 0
+            }]
+        ])
+        
+        stats_df = calcular_estadisticas_ofertas(asignaciones_df)
+        stats_df.to_excel(ESTADISTICAS_OFERTAS, index=False)
+        
+        print("\n=== PROCESO COMPLETADO CON ÉXITO ===")
+        return True
+        
+    except Exception as e:
+        logger.exception(f"Error en el proceso de optimización: {e}")
+        print(f"ERROR INESPERADO: {e}")
+        return False
+
 def main():
     """Función principal que ejecuta la aplicación."""
     # Configurar parser de argumentos
@@ -253,6 +359,11 @@ def main():
         action="store_true",
         help="Ejecutar solo el procesamiento de ofertas sin optimización"
     )
+    parser.add_argument(
+        "--solo-optimizacion",
+        action="store_true",
+        help="Ejecutar solo la optimización con Pyomo"
+    )
     args = parser.parse_args()
     
     # Modo automático completo
@@ -262,6 +373,10 @@ def main():
     # Modo solo ofertas
     if args.solo_ofertas:
         return procesar_ofertas_solo_tabla()
+        
+    # Modo solo optimización
+    if args.solo_optimizacion:
+        return optimizar_con_pyomo()
     
     # Modo interactivo
     while True:
@@ -283,31 +398,7 @@ def main():
             procesar_ofertas_solo_tabla()
         elif opcion == 5:
             print("\n=== OPTIMIZAR ASIGNACIÓN DE OFERTAS CON PYOMO ===")
-            # Leer demanda
-            demanda_df = leer_demanda(DATOS_INICIALES)
-            if demanda_df is None:
-                print("ERROR: No se pudo leer la demanda")
-                continue
-            
-            # Leer ofertas para optimización
-            ofertas_df = leer_ofertas_evaluadas(RESULTADO_OFERTAS)
-            if ofertas_df.empty:
-                print("ERROR: No hay ofertas válidas para optimización")
-                continue
-            
-            # Construir y resolver modelo
-            model = construir_modelo(demanda_df, ofertas_df)
-            result = resolver_modelo(model)
-            
-            # Extraer y exportar resultados
-            asignaciones_df = extraer_resultados(model)
-            exportar_asignaciones_por_oferta(asignaciones_df, RESULTADO_OFERTAS)
-            crear_hoja_demanda_faltante(asignaciones_df, RESULTADO_OFERTAS)
-            
-            # Calcular estadísticas
-            stats_df = calcular_estadisticas_ofertas(asignaciones_df)
-            stats_df.to_excel(ESTADISTICAS_OFERTAS, index=False)
-            
+            optimizar_con_pyomo()
         elif opcion == 6:
             print("\n=== CONFIGURACIÓN ACTUAL ===")
             print(f"Archivo de datos iniciales: {DATOS_INICIALES}")

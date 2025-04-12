@@ -321,3 +321,83 @@ def leer_ofertas_evaluadas(archivo_ofertas, sheet_name="CANTIDADES Y PRECIOS"):
         logger.error(f"Error al leer ofertas evaluadas: {e}")
         print(f"Error al leer ofertas evaluadas: {e}")
         return pd.DataFrame()
+
+def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
+    """
+    Exporta los resultados de la optimización al formato específico requerido.
+    
+    Args:
+        resultados_dict (dict): Diccionario con los DataFrames de resultados
+        archivo_salida (str o Path): Ruta donde se guardará el archivo Excel
+        
+    Returns:
+        bool: True si la exportación fue exitosa, False en caso contrario
+    """
+    logger.info(f"Exportando resultados al archivo: {archivo_salida}")
+    print(f"Exportando resultados al archivo: {archivo_salida}")
+    
+    try:
+        # Crear o abrir el archivo Excel
+        with pd.ExcelWriter(archivo_salida, engine='openpyxl', mode='a' if Path(archivo_salida).exists() else 'w', if_sheet_exists='replace') as writer:            
+            
+            # 1. Exportar hojas de DEMANDA ASIGNADA por oferta
+            for nombre_hoja, df in resultados_dict.items():
+                if nombre_hoja.startswith("DEMANDA_ASIGNADA_"):
+                    # Renombrar columnas para que coincidan con el formato esperado
+                    df_export = df.copy()
+                    
+                    # Ordenar por FECHA
+                    df_export = df_export.sort_values("FECHA")
+                    
+                    # Convertir fechas a formato string DD/MM/YYYY para mejor visualización
+                    df_export["X"] = df_export["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
+                    
+                    # Eliminar la columna FECHA y mantener solo X
+                    df_export = df_export.drop(columns=["FECHA"])
+                    
+                    # Establecer nombres de hojas según la convención esperada
+                    nombre_real = nombre_hoja.replace("DEMANDA_ASIGNADA_", "DEMANDA ASIGNADA ").replace("_", " ")
+                    
+                    # Exportar sin el índice
+                    df_export.to_excel(writer, sheet_name=nombre_real, index=False)
+                    logger.info(f"Hoja exportada: {nombre_real} con {len(df_export)} filas")
+            
+            # 2. Exportar hoja de ENERGÍA NO COMPRADA AL VENDEDOR
+            if "ENERGIA_NO_COMPRADA" in resultados_dict:
+                df_export = resultados_dict["ENERGIA_NO_COMPRADA"].copy()
+                df_export["X"] = df_export["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
+                # Eliminar la columna FECHA
+                df_export = df_export.drop(columns=["FECHA"])
+                df_export = df_export.sort_values("X")
+                df_export.to_excel(writer, sheet_name="ENERGÍA NO COMPRADA AL VENDEDOR", index=False)
+                logger.info(f"Hoja exportada: ENERGÍA NO COMPRADA AL VENDEDOR con {len(df_export)} filas")
+            
+            # 3. Exportar hoja de DEMANDA FALTANTE
+            if "DEMANDA_FALTANTE" in resultados_dict:
+                df_export = resultados_dict["DEMANDA_FALTANTE"].copy()
+                df_export["X"] = df_export["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
+                # Eliminar la columna FECHA
+                df_export = df_export.drop(columns=["FECHA"])
+                df_export = df_export.sort_values("X")
+                df_export.to_excel(writer, sheet_name="DEMANDA FALTANTE", index=False)
+                logger.info(f"Hoja exportada: DEMANDA FALTANTE con {len(df_export)} filas")
+            
+            # 4. Exportar hoja de RESUMEN
+            if "RESUMEN" in resultados_dict:
+                df_export = resultados_dict["RESUMEN"].copy()
+                # Formatear fecha como MM/YYYY
+                fecha_formateada = df_export["FECHA"].apply(lambda x: x.strftime('%m/%Y'))
+                # Reemplazar la columna FECHA con la formateada
+                df_export["FECHA"] = fecha_formateada
+                # Ordenar por fecha
+                df_export = df_export.sort_values("FECHA")
+                df_export.to_excel(writer, sheet_name="RESUMEN", index=False)
+                logger.info(f"Hoja exportada: RESUMEN con {len(df_export)} filas")
+        
+        print(f"Resultados exportados exitosamente a: {archivo_salida}")
+        return True
+    
+    except Exception as e:
+        logger.exception(f"Error al exportar resultados: {e}")
+        print(f"ERROR: No se pudieron exportar los resultados: {e}")
+        return False

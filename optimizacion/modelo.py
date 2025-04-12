@@ -7,6 +7,8 @@ import pandas as pd
 import numpy as np
 import logging
 from pathlib import Path
+from datetime import datetime
+
 
 logger = logging.getLogger(__name__)
 
@@ -207,27 +209,33 @@ def construir_modelo(demanda_df, ofertas_df):
 
 def extraer_resultados(model):
     """
-    Extrae los resultados del modelo resuelto y los organiza en un DataFrame.
+    Extrae los resultados del modelo resuelto y los organiza en múltiples DataFrames
+    según el formato requerido.
     
     Args:
         model (ConcreteModel): Modelo de Pyomo resuelto
         
     Returns:
-        DataFrame: DataFrame con los resultados de la optimización
+        dict: Diccionario con los diferentes DataFrames de resultados
     """
     logger.info("Extrayendo resultados del modelo...")
     print("Extrayendo resultados del modelo...")
     
-    resultados = []
+    # Obtener ofertas únicas
+    ofertas = sorted(list(model.I))
     
-    # Para cada combinación de fecha y hora
+    # Crear diccionarios para almacenar las asignaciones por oferta
+    asignaciones_por_oferta = {}
+    for oferta in ofertas:
+        asignaciones_por_oferta[oferta] = {}
+    
+    # Extraer asignaciones para cada combinación de fecha y hora
     for a in model.A:
         for h in model.H:
             demanda_total = pyo.value(model.D[a, h])
             deficit = pyo.value(model.ENA[a, h])
             
             # Para cada oferta en esta fecha y hora
-            oferta_asignada = False
             for i in model.I:
                 if (i, a, h) in model.OFH:
                     energia_asignada = pyo.value(model.EA[i, a, h])
@@ -236,72 +244,135 @@ def extraer_resultados(model):
                     if abs(energia_asignada) < 1e-6:
                         energia_asignada = 0
                     
-                    # Solo incluir ofertas con asignación positiva
+                    # Almacenar la asignación
                     if energia_asignada > 0:
-                        oferta_asignada = True
-                        resultados.append({
-                            "CÓDIGO OFERTA": i,
-                            "FECHA": a,
-                            "HORA": h,
+                        if a not in asignaciones_por_oferta[i]:
+                            asignaciones_por_oferta[i][a] = {}
+                        
+                        asignaciones_por_oferta[i][a][h] = {
                             "ENERGÍA ASIGNADA": energia_asignada,
                             "CANTIDAD OFERTADA": pyo.value(model.CO[i, a, h]),
                             "PRECIO": pyo.value(model.PO[i, a, h]),
-                            "DEMANDA TOTAL": demanda_total,
-                            "DÉFICIT": deficit,
-                            "OFERTA ACEPTADA": 1
-                        })
+                            "DEMANDA TOTAL": demanda_total
+                        }
+    
+    # Crear DataFrames para cada formato requerido
+    resultados = {}
+    
+    # 1. Crear DataFrame para "DEMANDA ASIGNADA [OFERTA] IT1"
+    for idx, oferta in enumerate(ofertas):
+        rows = []
+        # Preparar estructura de datos para la hoja "DEMANDA ASIGNADA [OFERTA] IT1"
+        for a in model.A:
+            row = {"FECHA": a, "X": a}
             
-            # Si no se asignó ninguna oferta pero hay demanda, registrar déficit
-            if not oferta_asignada and demanda_total > 0:
-                resultados.append({
-                    "CÓDIGO OFERTA": "SIN ASIGNACIÓN",
-                    "FECHA": a,
-                    "HORA": h,
-                    "ENERGÍA ASIGNADA": 0,
-                    "CANTIDAD OFERTADA": 0,
-                    "PRECIO": 0,
-                    "DEMANDA TOTAL": demanda_total,
-                    "DÉFICIT": deficit,
-                    "OFERTA ACEPTADA": 0
-                })
-    
-    # Crear DataFrame con los resultados
-    df = pd.DataFrame(resultados)
-    
-    # Agregar columnas calculadas
-    if not df.empty:
-        # Porcentaje de asignación respecto a la demanda
-        df["PORCENTAJE ASIGNACIÓN"] = df.apply(
-            lambda row: (row["ENERGÍA ASIGNADA"] / row["DEMANDA TOTAL"] * 100) if row["DEMANDA TOTAL"] > 0 else 0,
-            axis=1
-        )
+            for h in model.H:
+                if a in asignaciones_por_oferta[oferta] and h in asignaciones_por_oferta[oferta][a]:
+                    row[h] = asignaciones_por_oferta[oferta][a][h]["ENERGÍA ASIGNADA"]
+                else:
+                    row[h] = 0
+            
+            rows.append(row)
         
-        # Costo de la energía asignada
-        df["COSTO"] = df["ENERGÍA ASIGNADA"] * df["PRECIO"]
+        # Crear DataFrame
+        nombre_hoja = f"DEMANDA_ASIGNADA_{oferta}_IT{idx+1}"
+        resultados[nombre_hoja] = pd.DataFrame(rows)
     
-    # Ordenar por fecha, hora y oferta
-    if not df.empty and "FECHA" in df.columns and "HORA" in df.columns:
-        df = df.sort_values(["FECHA", "HORA", "CÓDIGO OFERTA"])
+    # 2. Crear DataFrame para "ENERGÍA NO COMPRADA AL VENDEDOR"
+    energia_no_comprada_rows = []
+    for a in model.A:
+        row = {"FECHA": a, "X": a}
+        
+        for h in model.H:
+            # Para cada oferta, calcular la energía no asignada
+            energia_no_asignada = 0
+            
+            for i in model.I:
+                if (i, a, h) in model.OFH:
+                    cantidad_ofertada = pyo.value(model.CO[i, a, h])
+                    energia_asignada = 0
+                    
+                    if a in asignaciones_por_oferta[i] and h in asignaciones_por_oferta[i][a]:
+                        energia_asignada = asignaciones_por_oferta[i][a][h]["ENERGÍA ASIGNADA"]
+                    
+                    energia_no_asignada += (cantidad_ofertada - energia_asignada)
+            
+            row[h] = energia_no_asignada
+        
+        energia_no_comprada_rows.append(row)
     
-    # Calcular métricas
-    if not df.empty:
-        demanda_total = df["DEMANDA TOTAL"].sum()
-        energia_asignada_total = df["ENERGÍA ASIGNADA"].sum()
-        deficit_total = df["DÉFICIT"].sum()
-        
-        logger.info(f"Demanda total: {demanda_total:.2f} kWh")
-        logger.info(f"Energía asignada total: {energia_asignada_total:.2f} kWh")
-        logger.info(f"Déficit total: {deficit_total:.2f} kWh")
-        
-        if demanda_total > 0:
-            porcentaje_cubierto = (energia_asignada_total / demanda_total) * 100
-            porcentaje_deficit = (deficit_total / demanda_total) * 100
-            logger.info(f"Porcentaje cubierto: {porcentaje_cubierto:.2f}%")
-            logger.info(f"Porcentaje déficit: {porcentaje_deficit:.2f}%")
-        
-        print(f"Resultados extraídos: {len(df)} registros, {df['CÓDIGO OFERTA'].nunique()} ofertas distintas")
-    else:
-        logger.warning("No se obtuvieron resultados de la optimización")
-        print("No se obtuvieron resultados de la optimización")
+    resultados["ENERGIA_NO_COMPRADA"] = pd.DataFrame(energia_no_comprada_rows)
     
-    return df
+    # 3. Crear DataFrame para "DEMANDA FALTANTE"
+    demanda_faltante_rows = []
+    for a in model.A:
+        row = {"FECHA": a, "X": a}
+        
+        for h in model.H:
+            deficit = pyo.value(model.ENA[a, h])
+            row[h] = deficit
+        
+        demanda_faltante_rows.append(row)
+    
+    resultados["DEMANDA_FALTANTE"] = pd.DataFrame(demanda_faltante_rows)
+    
+    # 4. Crear DataFrame para RESUMEN (mensuales)
+    resumen_rows = []
+    
+    # Agrupar fechas por mes
+    fechas_por_mes = {}
+    for a in model.A:
+        mes = a.month  # Asumiendo que a es un objeto date o datetime
+        año = a.year
+        key = f"{año}-{mes:02d}"
+        
+        if key not in fechas_por_mes:
+            fechas_por_mes[key] = []
+        
+        fechas_por_mes[key].append(a)
+    
+    # Para cada mes, calcular totales
+    for key, fechas in fechas_por_mes.items():
+        año, mes = key.split('-')
+        fecha_mostrar = datetime(int(año), int(mes), 1).date()
+        
+        row = {"FECHA": fecha_mostrar}
+        
+        # Para cada oferta, calcular total asignado en el mes
+        for idx, oferta in enumerate(ofertas):
+            total_asignado = 0
+            
+            for a in fechas:
+                for h in model.H:
+                    if a in asignaciones_por_oferta[oferta] and h in asignaciones_por_oferta[oferta][a]:
+                        total_asignado += asignaciones_por_oferta[oferta][a][h]["ENERGÍA ASIGNADA"]
+            
+            row[f"{oferta}_IT{idx+1}"] = total_asignado
+        
+        resumen_rows.append(row)
+    
+    resultados["RESUMEN"] = pd.DataFrame(resumen_rows)
+    
+    # Imprimir estadísticas de los resultados
+    total_demanda = sum(pyo.value(model.D[a, h]) for a in model.A for h in model.H)
+    total_asignado = sum(
+        asignaciones_por_oferta[i][a][h]["ENERGÍA ASIGNADA"] 
+        for i in ofertas 
+        for a in asignaciones_por_oferta[i] 
+        for h in asignaciones_por_oferta[i][a]
+    )
+    total_deficit = sum(pyo.value(model.ENA[a, h]) for a in model.A for h in model.H)
+    
+    logger.info(f"Demanda total: {total_demanda:.2f} kWh")
+    logger.info(f"Energía asignada total: {total_asignado:.2f} kWh")
+    logger.info(f"Déficit total: {total_deficit:.2f} kWh")
+    
+    if total_demanda > 0:
+        porcentaje_cubierto = (total_asignado / total_demanda) * 100
+        porcentaje_deficit = (total_deficit / total_demanda) * 100
+        logger.info(f"Porcentaje cubierto: {porcentaje_cubierto:.2f}%")
+        logger.info(f"Porcentaje déficit: {porcentaje_deficit:.2f}%")
+    
+    print(f"Resultados extraídos: {sum(len(df) for df in resultados.values())} filas en total")
+    
+    return resultados

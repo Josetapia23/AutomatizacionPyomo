@@ -367,8 +367,8 @@ def crear_proyeccion_precio_sicep(datos_iniciales=DATOS_INICIALES):
     # Primer registro (fecha base)
     proyeccion_sicep.append({
         "FECHA": fecha_base,
-        "IPP": ipp_base,
-        "PRECIO": precio_base
+        "IPP": round(ipp_base, 2),
+        "PRECIO": round(precio_base, 2)
     })
     
     # Generar meses siguientes
@@ -402,24 +402,32 @@ def crear_proyeccion_precio_sicep(datos_iniciales=DATOS_INICIALES):
                 fecha_siguiente = fecha_actual.replace(month=fecha_actual.month + 1)
             continue
         
-        # Obtener el precio del mes anterior
-        precio_anterior = proyeccion_sicep[-1]["PRECIO"]
-        ipp_anterior = proyeccion_sicep[-1]["IPP"]
-        
-        # Calcular nuevo precio usando la fórmula: precio_anterior * ipp_siguiente / ipp_anterior
-        # Y redondear hacia arriba a 2 decimales (REDONDEAR.MAS en Excel)
-        precio_siguiente = precio_anterior * (ipp_siguiente / ipp_anterior)
-        precio_siguiente = math.ceil(precio_siguiente * 100) / 100  # Redondear hacia arriba a 2 decimales
-        
-        # Verificar si es 1 de enero y el año está en los precios anuales
-        if fecha_siguiente.day == 1 and fecha_siguiente.month == 1 and fecha_siguiente.year in precios_por_año:
-            # Para el 1 de enero usar el precio del año correspondiente
-            precio_siguiente = precios_por_año[fecha_siguiente.year]
+        # Verificar si cambiamos de año
+        if fecha_siguiente.day == 1 and fecha_siguiente.month == 1:
+            # Usar el precio del nuevo año si está disponible
+            if fecha_siguiente.year in precios_por_año:
+                precio_base = precios_por_año[fecha_siguiente.year]
+                
+                # Calcular el nuevo precio usando el IPP base y el IPP del nuevo año
+                # La fórmula es: nuevo_precio = precio_base * (ipp_actual / ipp_base)
+                precio_siguiente = round(precio_base * (ipp_siguiente / ipp_base), 2)
+            else:
+                # Si no hay precio para el nuevo año, continuar con la proyección
+                precio_anterior = proyeccion_sicep[-1]["PRECIO"]
+                ipp_anterior = proyeccion_sicep[-1]["IPP"]
+                
+                precio_siguiente = round(precio_anterior * (ipp_siguiente / ipp_anterior), 2)
+        else:
+            # Proyección mensual normal
+            precio_anterior = proyeccion_sicep[-1]["PRECIO"]
+            ipp_anterior = proyeccion_sicep[-1]["IPP"]
+            
+            precio_siguiente = round(precio_anterior * (ipp_siguiente / ipp_anterior), 2)
         
         # Agregar a la proyección
         proyeccion_sicep.append({
             "FECHA": fecha_siguiente,
-            "IPP": ipp_siguiente,
+            "IPP": round(ipp_siguiente, 2),
             "PRECIO": precio_siguiente
         })
         
