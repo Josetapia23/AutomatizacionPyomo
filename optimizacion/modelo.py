@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 
 def construir_modelo(demanda_df, ofertas_df):
     """
-    Construye el modelo de optimización utilizando Pyomo.
+    Construye el modelo de optimización utilizando Pyomo, 
+    con prioridades específicas para replicar la lógica del Excel.
     
     Args:
         demanda_df (DataFrame): DataFrame con los datos de demanda
@@ -24,6 +25,7 @@ def construir_modelo(demanda_df, ofertas_df):
         ConcreteModel: Modelo de Pyomo construido
     """
     logger.info("Construyendo modelo de optimización...")
+    print("Construyendo modelo de optimización...")
     
     # Crear modelo concreto
     model = pyo.ConcreteModel(name="AsignacionOfertas")
@@ -40,6 +42,9 @@ def construir_modelo(demanda_df, ofertas_df):
     ofertas = sorted(ofertas_df['CÓDIGO OFERTA'].unique())
     fechas = sorted(demanda_df['FECHA'].unique())
     horas = sorted(demanda_df['HORA'].unique())
+    
+    # Imprimir ofertas para verificar
+    print("Ofertas disponibles para optimización:", ofertas)
     
     # Crear diccionarios para acceder rápidamente a los datos
     demanda_dict = {}
@@ -109,10 +114,40 @@ def construir_modelo(demanda_df, ofertas_df):
     )
     
     # Constante grande para restricciones big-M
-    model.M = pyo.Param(initialize=100000000, doc='Constante para restricciones big-M')
+    model.M = pyo.Param(initialize=1e10, doc='Constante para restricciones big-M')
     
-    # Margen SICEP (MS) - Factor k para evaluación (Solicitar al usuario)
-    model.MS = pyo.Param(initialize=1.5, doc='Margen SICEP (factor k)')
+    # Asignar prioridades a las ofertas según su nombre
+    prioridad_dict = {}
+    for oferta in ofertas:
+        if "BTG" in oferta:
+            if "IT1" in oferta or "-" in oferta:  # Asumir que la forma base es IT1
+                prioridad_dict[oferta] = 1  # Primera prioridad: BTG IT1
+            elif "IT2" in oferta:
+                prioridad_dict[oferta] = 3  # Tercera prioridad: BTG IT2
+            else:
+                prioridad_dict[oferta] = 1  # Por defecto BTG es prioridad 1
+        elif "AES" in oferta:
+            prioridad_dict[oferta] = 2  # Segunda prioridad: AES
+        else:
+            # Verificar por patrón específico en el nombre de la oferta
+            if oferta.startswith("OP1_Wide-BTG"):
+                prioridad_dict[oferta] = 1
+            elif oferta.startswith("OP1_Wide-AES"):
+                prioridad_dict[oferta] = 2
+            else:
+                prioridad_dict[oferta] = 10  # Baja prioridad para otras ofertas
+    
+    # Imprimir las prioridades asignadas
+    print("Prioridades asignadas a ofertas:")
+    for oferta, prioridad in prioridad_dict.items():
+        print(f"  {oferta}: {prioridad}")
+    
+    # Añadir parámetro de prioridad al modelo
+    model.prioridad = pyo.Param(
+        model.I,
+        initialize=lambda model, i: prioridad_dict.get(i, 999),
+        doc='Prioridad de asignación para cada oferta'
+    )
     
     # Definir variables
     # Variable de energía asignada
@@ -136,9 +171,9 @@ def construir_modelo(demanda_df, ofertas_df):
         doc='Energía no asignada (déficit) para cada fecha y hora'
     )
     
-    # Función objetivo: Minimizar el costo total de energía asignada
+    # Función objetivo: Minimizar el costo total considerando prioridades
     def objetivo_rule(model):
-        # Costo de la energía asignada
+        # Costo base por energía
         costo_energia = sum(
             model.PO[i, a, h] * model.EA[i, a, h]
             for (i, a, h) in model.OFH
@@ -151,11 +186,17 @@ def construir_modelo(demanda_df, ofertas_df):
             for h in model.H
         )
         
-        return costo_energia + penalizacion_deficit
+        # Factor de prioridad (multiplicamos por un valor pequeño para no distorsionar el costo)
+        factor_prioridad = sum(
+            (model.prioridad[i] * 0.001) * model.EA[i, a, h]
+            for (i, a, h) in model.OFH
+        )
+        
+        return costo_energia + penalizacion_deficit + factor_prioridad
     
     model.Objetivo = pyo.Objective(rule=objetivo_rule, sense=pyo.minimize)
     
-    # Restricción de balance de demanda (Ecuación 2)
+    # Restricción de balance de demanda
     def balance_demanda_rule(model, a, h):
         # Suma de energía asignada para todas las ofertas en este período
         energia_asignada = sum(
@@ -173,7 +214,7 @@ def construir_modelo(demanda_df, ofertas_df):
         doc='Restricción de balance de demanda'
     )
     
-    # Restricción de límite de asignación (Ecuación 3)
+    # Restricción de límite de asignación
     def limite_asignacion_rule(model, i, a, h):
         if (i, a, h) in model.OFH:
             # La energía asignada no puede superar la cantidad ofertada
@@ -187,7 +228,7 @@ def construir_modelo(demanda_df, ofertas_df):
         doc='Restricción de límite de asignación'
     )
     
-    # Restricción de variable binaria para asignación (Ecuación 6, primera parte)
+    # Restricción de variable binaria para asignación
     def binaria_asignacion_rule(model, i, a, h):
         if (i, a, h) in model.OFH:
             # Si Y = 0, entonces EA = 0
@@ -202,6 +243,14 @@ def construir_modelo(demanda_df, ofertas_df):
         doc='Restricción de variable binaria para asignación'
     )
     
+    # Restricciones para implementar la lógica de asignación secuencial como en Excel
+    
+    # Identificar ofertas por tipo
+    ofertas_btg_it1 = [o for o in ofertas if model.prioridad[o] == 1]
+    ofertas_aes_it1 = [o for o in ofertas if model.prioridad[o] == 2]
+    ofertas_btg_it2 = [o for o in ofertas if model.prioridad[o] == 3]
+    
+    # No intentar agregar restricciones si no tenemos ofertas de un tipo
     logger.info(f"Modelo construido con {len(model.OFH)} combinaciones de ofertas válidas")
     print(f"Modelo construido con {len(model.OFH)} combinaciones de ofertas válidas")
     
@@ -210,7 +259,7 @@ def construir_modelo(demanda_df, ofertas_df):
 def extraer_resultados(model):
     """
     Extrae los resultados del modelo resuelto y los organiza en múltiples DataFrames
-    según el formato requerido.
+    según el formato requerido en el Excel.
     
     Args:
         model (ConcreteModel): Modelo de Pyomo resuelto
@@ -221,12 +270,40 @@ def extraer_resultados(model):
     logger.info("Extrayendo resultados del modelo...")
     print("Extrayendo resultados del modelo...")
     
-    # Obtener ofertas únicas
+    # Nombres específicos para las hojas
+    hojas_necesarias = [
+        "DEMANDA ASIGNADA BTG IT1",
+        "DEMANDA ASIGNADA AES IT1",
+        "DEMANDA ASIGNADA BTG IT2"
+    ]
+    
+    # Determinar qué ofertas corresponden a cada hoja
     ofertas = sorted(list(model.I))
+    mapeo_ofertas = {}
+    
+    # Intentar asignar ofertas basándose en su nombre
+    for oferta in ofertas:
+        if "BTG" in oferta or "OP1_Wide-BTG" in oferta:
+            mapeo_ofertas["DEMANDA ASIGNADA BTG IT1"] = oferta
+        elif "AES" in oferta or "OP1_Wide-AES" in oferta:
+            mapeo_ofertas["DEMANDA ASIGNADA AES IT1"] = oferta
+    
+    # Asignación por defecto si no se encontraron ofertas específicas
+    if not mapeo_ofertas:
+        if len(ofertas) >= 1:
+            mapeo_ofertas["DEMANDA ASIGNADA BTG IT1"] = ofertas[0]
+        if len(ofertas) >= 2:
+            mapeo_ofertas["DEMANDA ASIGNADA AES IT1"] = ofertas[1]
+        if len(ofertas) >= 3:
+            mapeo_ofertas["DEMANDA ASIGNADA BTG IT2"] = ofertas[2]
+    
+    print("Mapeo de ofertas a hojas:")
+    for hoja, oferta in mapeo_ofertas.items():
+        print(f"  {hoja}: {oferta}")
     
     # Crear diccionarios para almacenar las asignaciones por oferta
     asignaciones_por_oferta = {}
-    for oferta in ofertas:
+    for oferta in model.I:
         asignaciones_por_oferta[oferta] = {}
     
     # Extraer asignaciones para cada combinación de fecha y hora
@@ -244,92 +321,118 @@ def extraer_resultados(model):
                     if abs(energia_asignada) < 1e-6:
                         energia_asignada = 0
                     
-                    # Almacenar la asignación
-                    if energia_asignada > 0:
-                        if a not in asignaciones_por_oferta[i]:
-                            asignaciones_por_oferta[i][a] = {}
-                        
-                        asignaciones_por_oferta[i][a][h] = {
-                            "ENERGÍA ASIGNADA": energia_asignada,
-                            "CANTIDAD OFERTADA": pyo.value(model.CO[i, a, h]),
-                            "PRECIO": pyo.value(model.PO[i, a, h]),
-                            "DEMANDA TOTAL": demanda_total
-                        }
+                    # Almacenar la asignación (incluso si es cero)
+                    if a not in asignaciones_por_oferta[i]:
+                        asignaciones_por_oferta[i][a] = {}
+                    
+                    asignaciones_por_oferta[i][a][h] = {
+                        "ENERGÍA ASIGNADA": energia_asignada,
+                        "CANTIDAD OFERTADA": pyo.value(model.CO[i, a, h]),
+                        "PRECIO": pyo.value(model.PO[i, a, h]),
+                        "DEMANDA TOTAL": demanda_total
+                    }
+    
+    # Asegurar que todas las fechas y horas estén en todas las ofertas
+    todas_fechas = sorted(list(model.A))
+    todas_horas = sorted(list(model.H))
+    
+    for oferta in model.I:
+        for fecha in todas_fechas:
+            if fecha not in asignaciones_por_oferta[oferta]:
+                asignaciones_por_oferta[oferta][fecha] = {}
+            
+            for hora in todas_horas:
+                if hora not in asignaciones_por_oferta[oferta][fecha]:
+                    # Buscar la demanda total para esta fecha/hora
+                    demanda_total = pyo.value(model.D[fecha, hora])
+                    
+                    asignaciones_por_oferta[oferta][fecha][hora] = {
+                        "ENERGÍA ASIGNADA": 0,
+                        "CANTIDAD OFERTADA": 0,
+                        "PRECIO": 0,
+                        "DEMANDA TOTAL": demanda_total
+                    }
     
     # Crear DataFrames para cada formato requerido
     resultados = {}
     
-    # 1. Crear DataFrame para "DEMANDA ASIGNADA [OFERTA] IT1"
-    for idx, oferta in enumerate(ofertas):
-        rows = []
-        # Preparar estructura de datos para la hoja "DEMANDA ASIGNADA [OFERTA] IT1"
-        for a in model.A:
-            row = {"FECHA": a, "X": a}
+    # 1. Crear DataFrames para "ENERGÍA A COMPRAR AL VENDEDOR"
+    for nombre_hoja, oferta in mapeo_ofertas.items():
+        energia_comprar_rows = []
+        energia_no_comprada_rows = []
+        
+        # Preparar estructura para ambas secciones
+        for fecha in todas_fechas:
+            comprar_row = {"FECHA": fecha, "X": fecha}
+            no_comprada_row = {"FECHA": fecha, "X": fecha}
             
-            for h in model.H:
-                if a in asignaciones_por_oferta[oferta] and h in asignaciones_por_oferta[oferta][a]:
-                    row[h] = asignaciones_por_oferta[oferta][a][h]["ENERGÍA ASIGNADA"]
+            for hora in range(1, 25):  # Asegurarse de incluir todas las horas de 1 a 24
+                # ENERGÍA A COMPRAR AL VENDEDOR
+                if hora in asignaciones_por_oferta[oferta][fecha]:
+                    comprar_row[hora] = asignaciones_por_oferta[oferta][fecha][hora]["ENERGÍA ASIGNADA"]
                 else:
-                    row[h] = 0
+                    comprar_row[hora] = 0
+                
+                # ENERGÍA NO COMPRADA AL VENDEDOR
+                cantidad_ofertada = 0
+                if (oferta, fecha, hora) in model.OFH:
+                    cantidad_ofertada = pyo.value(model.CO[oferta, fecha, hora])
+                
+                energia_asignada = comprar_row[hora]  # Ya calculada arriba
+                energia_no_comprada = max(0, cantidad_ofertada - energia_asignada)
+                no_comprada_row[hora] = energia_no_comprada
             
-            rows.append(row)
+            energia_comprar_rows.append(comprar_row)
+            energia_no_comprada_rows.append(no_comprada_row)
         
-        # Crear DataFrame
-        nombre_hoja = f"DEMANDA_ASIGNADA_{oferta}_IT{idx+1}"
-        resultados[nombre_hoja] = pd.DataFrame(rows)
+        # Crear DataFrames
+        resultados[f"{nombre_hoja}_COMPRAR"] = pd.DataFrame(energia_comprar_rows)
+        resultados[f"{nombre_hoja}_NO_COMPRADA"] = pd.DataFrame(energia_no_comprada_rows)
     
-    # 2. Crear DataFrame para "ENERGÍA NO COMPRADA AL VENDEDOR"
-    energia_no_comprada_rows = []
-    for a in model.A:
-        row = {"FECHA": a, "X": a}
-        
-        for h in model.H:
-            # Para cada oferta, calcular la energía no asignada
-            energia_no_asignada = 0
-            
-            for i in model.I:
-                if (i, a, h) in model.OFH:
-                    cantidad_ofertada = pyo.value(model.CO[i, a, h])
-                    energia_asignada = 0
-                    
-                    if a in asignaciones_por_oferta[i] and h in asignaciones_por_oferta[i][a]:
-                        energia_asignada = asignaciones_por_oferta[i][a][h]["ENERGÍA ASIGNADA"]
-                    
-                    energia_no_asignada += (cantidad_ofertada - energia_asignada)
-            
-            row[h] = energia_no_asignada
-        
-        energia_no_comprada_rows.append(row)
-    
-    resultados["ENERGIA_NO_COMPRADA"] = pd.DataFrame(energia_no_comprada_rows)
-    
-    # 3. Crear DataFrame para "DEMANDA FALTANTE"
+    # 2. Crear DataFrame para "DEMANDA FALTANTE"
     demanda_faltante_rows = []
-    for a in model.A:
-        row = {"FECHA": a, "X": a}
+    
+    # Calcular la demanda faltante para cada fecha y hora
+    for fecha in todas_fechas:
+        row = {"FECHA": fecha, "X": fecha}
         
-        for h in model.H:
-            deficit = pyo.value(model.ENA[a, h])
-            row[h] = deficit
+        for hora in todas_horas:
+            # Obtener la demanda total
+            demanda_total = pyo.value(model.D[fecha, hora])
+            
+            # Calcular la suma de energía asignada
+            energia_asignada_total = 0
+            for nombre_hoja, oferta in mapeo_ofertas.items():
+                if fecha in asignaciones_por_oferta[oferta] and hora in asignaciones_por_oferta[oferta][fecha]:
+                    energia_asignada_total += asignaciones_por_oferta[oferta][fecha][hora]["ENERGÍA ASIGNADA"]
+            
+            # Calcular el déficit
+            deficit = max(0, demanda_total - energia_asignada_total)
+            
+            # Si es un valor muy pequeño, considerarlo como 0
+            if deficit < 1e-6:
+                deficit = 0
+                
+            row[hora] = deficit
         
         demanda_faltante_rows.append(row)
     
     resultados["DEMANDA_FALTANTE"] = pd.DataFrame(demanda_faltante_rows)
     
-    # 4. Crear DataFrame para RESUMEN (mensuales)
+    # 3. Crear DataFrame para RESUMEN (mensuales)
     resumen_rows = []
     
     # Agrupar fechas por mes
     fechas_por_mes = {}
-    for a in model.A:
-        mes = a.month  # Asumiendo que a es un objeto date o datetime
-        año = a.year
+    for fecha in todas_fechas:
+        mes = fecha.month
+        año = fecha.year
         key = f"{año}-{mes:02d}"
         
         if key not in fechas_por_mes:
             fechas_por_mes[key] = []
         
-        fechas_por_mes[key].append(a)
+        fechas_por_mes[key].append(fecha)
     
     # Para cada mes, calcular totales
     for key, fechas in fechas_por_mes.items():
@@ -339,15 +442,15 @@ def extraer_resultados(model):
         row = {"FECHA": fecha_mostrar}
         
         # Para cada oferta, calcular total asignado en el mes
-        for idx, oferta in enumerate(ofertas):
+        for nombre_hoja, oferta in mapeo_ofertas.items():
             total_asignado = 0
             
-            for a in fechas:
-                for h in model.H:
-                    if a in asignaciones_por_oferta[oferta] and h in asignaciones_por_oferta[oferta][a]:
-                        total_asignado += asignaciones_por_oferta[oferta][a][h]["ENERGÍA ASIGNADA"]
+            for fecha in fechas:
+                for hora in todas_horas:
+                    if fecha in asignaciones_por_oferta[oferta] and hora in asignaciones_por_oferta[oferta][fecha]:
+                        total_asignado += asignaciones_por_oferta[oferta][fecha][hora]["ENERGÍA ASIGNADA"]
             
-            row[f"{oferta}_IT{idx+1}"] = total_asignado
+            row[nombre_hoja] = total_asignado
         
         resumen_rows.append(row)
     
@@ -355,12 +458,12 @@ def extraer_resultados(model):
     
     # Imprimir estadísticas de los resultados
     total_demanda = sum(pyo.value(model.D[a, h]) for a in model.A for h in model.H)
-    total_asignado = sum(
-        asignaciones_por_oferta[i][a][h]["ENERGÍA ASIGNADA"] 
-        for i in ofertas 
-        for a in asignaciones_por_oferta[i] 
-        for h in asignaciones_por_oferta[i][a]
-    )
+    total_asignado = 0
+    for oferta in model.I:
+        for fecha in asignaciones_por_oferta[oferta]:
+            for hora in asignaciones_por_oferta[oferta][fecha]:
+                total_asignado += asignaciones_por_oferta[oferta][fecha][hora]["ENERGÍA ASIGNADA"]
+    
     total_deficit = sum(pyo.value(model.ENA[a, h]) for a in model.A for h in model.H)
     
     logger.info(f"Demanda total: {total_demanda:.2f} kWh")

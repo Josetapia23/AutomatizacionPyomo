@@ -1,0 +1,23 @@
+2025-04-12 13:57:49,047 - core.ofertas - INFO - Procesando PRECIO SICEP desde C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\data\datos_iniciales.xlsx
+2025-04-12 13:57:49,082 - core.ofertas - INFO - PRECIO SICEP procesado correctamente: 66 períodos
+2025-04-12 13:57:49,082 - core.ofertas - INFO - Procesando ofertas en C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\OFERTAS
+2025-04-12 13:58:07,316 - __main__ - INFO - Leyendo datos de demanda desde C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\data\datos_iniciales.xlsx (hoja: DEMANDA)
+2025-04-12 13:58:07,538 - __main__ - INFO - Datos de demanda leídos correctamente: 43824 registros
+2025-04-12 13:58:09,725 - core.evaluacion - INFO - Se leyeron 34536 ofertas, de las cuales 16176 son válidas para optimización
+2025-04-12 13:58:09,726 - optimizacion.modelo - INFO - Construyendo modelo de optimización...
+2025-04-12 13:58:12,239 - optimizacion.modelo - INFO - Modelo construido con 16176 combinaciones de ofertas válidas
+2025-04-12 13:58:12,242 - optimizacion.solver - INFO - Resolviendo modelo de optimización (tiempo límite: 600 segundos)...
+2025-04-12 13:58:12,242 - optimizacion.solver - INFO - Ruta del solver CBC: C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\CBC\cbc.exe
+2025-04-12 13:58:16,236 - optimizacion.solver - INFO - Se encontró una solución óptima
+2025-04-12 13:58:16,319 - optimizacion.solver - INFO - Valor de la función objetivo: 5.268650376079551e+19
+2025-04-12 13:58:16,320 - optimizacion.modelo - INFO - Extrayendo resultados del modelo...
+2025-04-12 13:58:16,602 - optimizacion.modelo - INFO - Demanda total: 5683650354.00 kWh
+2025-04-12 13:58:16,602 - optimizacion.modelo - INFO - Energía asignada total: 414999998.39 kWh
+2025-04-12 13:58:16,603 - optimizacion.modelo - INFO - Déficit total: 5268650360.88 kWh
+2025-04-12 13:58:16,603 - optimizacion.modelo - INFO - Porcentaje cubierto: 7.30%
+2025-04-12 13:58:16,603 - optimizacion.modelo - INFO - Porcentaje déficit: 92.70%
+2025-04-12 13:58:16,610 - core.evaluacion - INFO - Exportando resultados al archivo: C:\Users\JOSE\Documents\GitHub\AutomatizacionPyomo\output\resultado_ofertas.xlsx
+2025-04-12 13:58:19,939 - core.evaluacion - INFO - Hoja exportada: DEMANDA ASIGNADA AES IT1
+2025-04-12 13:58:20,079 - core.evaluacion - INFO - Hoja exportada: DEMANDA FALTANTE
+2025-04-12 13:58:20,081 - core.evaluacion - INFO - Hoja exportada: RESUMEN
+2025-04-12 13:58:25,976 - core.evaluacion - WARNING - No hay ofertas para calcular estadísticas

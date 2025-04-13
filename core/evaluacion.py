@@ -324,7 +324,8 @@ def leer_ofertas_evaluadas(archivo_ofertas, sheet_name="CANTIDADES Y PRECIOS"):
 
 def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
     """
-    Exporta los resultados de la optimización al formato específico requerido.
+    Exporta los resultados de la optimización al formato específico requerido,
+    preservando las hojas existentes como TABLA MAESTRA y CANTIDADES Y PRECIOS.
     
     Args:
         resultados_dict (dict): Diccionario con los DataFrames de resultados
@@ -333,66 +334,119 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
     Returns:
         bool: True si la exportación fue exitosa, False en caso contrario
     """
+    archivo_salida = Path(archivo_salida)
     logger.info(f"Exportando resultados al archivo: {archivo_salida}")
     print(f"Exportando resultados al archivo: {archivo_salida}")
     
+    # Crear directorio si no existe
+    archivo_salida.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Verificar si el archivo existe
+    archivo_existe = archivo_salida.exists()
+    
     try:
-        # Crear o abrir el archivo Excel
-        with pd.ExcelWriter(archivo_salida, engine='openpyxl', mode='a' if Path(archivo_salida).exists() else 'w', if_sheet_exists='replace') as writer:            
-            
+        # Usar modo 'a' (append) si el archivo existe, 'w' (write) si no existe
+        modo = 'a' if archivo_existe else 'w'
+        
+        with pd.ExcelWriter(archivo_salida, engine='openpyxl', mode=modo, if_sheet_exists='replace') as writer:
             # 1. Exportar hojas de DEMANDA ASIGNADA por oferta
+            # Agrupar resultados por hoja
+            hojas_por_nombre = {}
+            
             for nombre_hoja, df in resultados_dict.items():
-                if nombre_hoja.startswith("DEMANDA_ASIGNADA_"):
-                    # Renombrar columnas para que coincidan con el formato esperado
-                    df_export = df.copy()
+                if "_COMPRAR" in nombre_hoja or "_NO_COMPRADA" in nombre_hoja:
+                    # Extraer nombre base de la hoja
+                    nombre_base = nombre_hoja.split("_COMPRAR")[0] if "_COMPRAR" in nombre_hoja else nombre_hoja.split("_NO_COMPRADA")[0]
+                    tipo = "COMPRAR" if "_COMPRAR" in nombre_hoja else "NO_COMPRADA"
                     
-                    # Ordenar por FECHA
-                    df_export = df_export.sort_values("FECHA")
+                    if nombre_base not in hojas_por_nombre:
+                        hojas_por_nombre[nombre_base] = {}
                     
-                    # Convertir fechas a formato string DD/MM/YYYY para mejor visualización
-                    df_export["X"] = df_export["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
+                    hojas_por_nombre[nombre_base][tipo] = df
+            
+            # Para cada nombre de hoja, crear la hoja con ambos cuadros
+            for nombre_hoja, datos in hojas_por_nombre.items():
+                df_comprar = datos.get("COMPRAR", pd.DataFrame())
+                df_no_comprada = datos.get("NO_COMPRADA", pd.DataFrame())
+                
+                if not df_comprar.empty and not df_no_comprada.empty:
+                    # Ordenar por fecha
+                    df_comprar = df_comprar.sort_values("FECHA")
+                    df_no_comprada = df_no_comprada.sort_values("FECHA")
                     
-                    # Eliminar la columna FECHA y mantener solo X
-                    df_export = df_export.drop(columns=["FECHA"])
+                    # Convertir fechas a formato string DD/MM/YYYY
+                    df_comprar["X"] = df_comprar["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
+                    df_no_comprada["X"] = df_no_comprada["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
                     
-                    # Establecer nombres de hojas según la convención esperada
-                    nombre_real = nombre_hoja.replace("DEMANDA_ASIGNADA_", "DEMANDA ASIGNADA ").replace("_", " ")
+                    # Eliminar columna FECHA (mantener sólo X)
+                    df_comprar = df_comprar.drop(columns=["FECHA"])
+                    df_no_comprada = df_no_comprada.drop(columns=["FECHA"])
+                    
+                    # Crear un nuevo DataFrame con ambos cuadros
+                    # Primero añadir un título para el primer cuadro
+                    titulo_comprar = pd.DataFrame({
+                        "X": ["ENERGÍA A COMPRAR AL VENDEDOR"],
+                        **{i: [None] for i in range(1, 25)}  # Columnas del 1 al 24
+                    })
+                    
+                    # Añadir algunas filas en blanco entre los cuadros
+                    filas_blanco = pd.DataFrame({
+                        "X": [None, None],
+                        **{i: [None, None] for i in range(1, 25)}  # Columnas del 1 al 24
+                    })
+                    
+                    # Título para el segundo cuadro
+                    titulo_no_comprada = pd.DataFrame({
+                        "X": ["ENERGÍA NO COMPRADA AL VENDEDOR"],
+                        **{i: [None] for i in range(1, 25)}  # Columnas del 1 al 24
+                    })
+                    
+                    # Concatenar todo
+                    df_final = pd.concat([
+                        titulo_comprar, 
+                        df_comprar, 
+                        filas_blanco, 
+                        titulo_no_comprada, 
+                        df_no_comprada
+                    ], ignore_index=True)
+                    
+                    # Asegurar que el nombre de la hoja no exceda los 31 caracteres
+                    sheet_name = nombre_hoja
+                    if len(sheet_name) > 31:
+                        sheet_name = sheet_name[:31]
                     
                     # Exportar sin el índice
-                    df_export.to_excel(writer, sheet_name=nombre_real, index=False)
-                    logger.info(f"Hoja exportada: {nombre_real} con {len(df_export)} filas")
+                    df_final.to_excel(writer, sheet_name=sheet_name, index=False)
+                    logger.info(f"Hoja exportada: {sheet_name}")
             
-            # 2. Exportar hoja de ENERGÍA NO COMPRADA AL VENDEDOR
-            if "ENERGIA_NO_COMPRADA" in resultados_dict:
-                df_export = resultados_dict["ENERGIA_NO_COMPRADA"].copy()
-                df_export["X"] = df_export["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
-                # Eliminar la columna FECHA
-                df_export = df_export.drop(columns=["FECHA"])
-                df_export = df_export.sort_values("X")
-                df_export.to_excel(writer, sheet_name="ENERGÍA NO COMPRADA AL VENDEDOR", index=False)
-                logger.info(f"Hoja exportada: ENERGÍA NO COMPRADA AL VENDEDOR con {len(df_export)} filas")
-            
-            # 3. Exportar hoja de DEMANDA FALTANTE
+            # 2. Exportar hoja de DEMANDA FALTANTE
             if "DEMANDA_FALTANTE" in resultados_dict:
                 df_export = resultados_dict["DEMANDA_FALTANTE"].copy()
                 df_export["X"] = df_export["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
-                # Eliminar la columna FECHA
                 df_export = df_export.drop(columns=["FECHA"])
                 df_export = df_export.sort_values("X")
-                df_export.to_excel(writer, sheet_name="DEMANDA FALTANTE", index=False)
-                logger.info(f"Hoja exportada: DEMANDA FALTANTE con {len(df_export)} filas")
+                
+                # Añadir un título a la hoja DEMANDA FALTANTE
+                titulo_faltante = pd.DataFrame({
+                    "X": ["DEMANDA FALTANTE POR HORA Y DÍA"],
+                    **{i: [None] for i in range(1, 25)}  # Columnas del 1 al 24
+                })
+                
+                # Concatenar título y datos
+                df_final = pd.concat([titulo_faltante, df_export], ignore_index=True)
+                
+                df_final.to_excel(writer, sheet_name="DEMANDA FALTANTE", index=False)
+                logger.info(f"Hoja exportada: DEMANDA FALTANTE")
             
-            # 4. Exportar hoja de RESUMEN
+            # 3. Exportar hoja de RESUMEN
             if "RESUMEN" in resultados_dict:
                 df_export = resultados_dict["RESUMEN"].copy()
                 # Formatear fecha como MM/YYYY
                 fecha_formateada = df_export["FECHA"].apply(lambda x: x.strftime('%m/%Y'))
-                # Reemplazar la columna FECHA con la formateada
                 df_export["FECHA"] = fecha_formateada
-                # Ordenar por fecha
                 df_export = df_export.sort_values("FECHA")
                 df_export.to_excel(writer, sheet_name="RESUMEN", index=False)
-                logger.info(f"Hoja exportada: RESUMEN con {len(df_export)} filas")
+                logger.info(f"Hoja exportada: RESUMEN")
         
         print(f"Resultados exportados exitosamente a: {archivo_salida}")
         return True
@@ -400,4 +454,96 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
     except Exception as e:
         logger.exception(f"Error al exportar resultados: {e}")
         print(f"ERROR: No se pudieron exportar los resultados: {e}")
-        return False
+        
+        try:
+            # Intentar con un archivo nuevo
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            nueva_ruta = archivo_salida.parent / f"{archivo_salida.stem}_nuevo_{timestamp}{archivo_salida.suffix}"
+            
+            print(f"Intentando crear un archivo nuevo en: {nueva_ruta}")
+            
+            with pd.ExcelWriter(nueva_ruta, engine='openpyxl') as writer:
+                # Código similar al anterior para las hojas
+                for nombre_hoja, datos in hojas_por_nombre.items():
+                    # Mismo procesamiento que arriba...
+                    df_comprar = datos.get("COMPRAR", pd.DataFrame())
+                    df_no_comprada = datos.get("NO_COMPRADA", pd.DataFrame())
+                    
+                    if not df_comprar.empty and not df_no_comprada.empty:
+                        # Ordenar por fecha
+                        df_comprar = df_comprar.sort_values("FECHA")
+                        df_no_comprada = df_no_comprada.sort_values("FECHA")
+                        
+                        # Convertir fechas a formato string DD/MM/YYYY
+                        df_comprar["X"] = df_comprar["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
+                        df_no_comprada["X"] = df_no_comprada["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
+                        
+                        # Eliminar columna FECHA (mantener sólo X)
+                        df_comprar = df_comprar.drop(columns=["FECHA"])
+                        df_no_comprada = df_no_comprada.drop(columns=["FECHA"])
+                        
+                        # Resto del procesamiento...
+                        titulo_comprar = pd.DataFrame({
+                            "X": ["ENERGÍA A COMPRAR AL VENDEDOR"],
+                            **{i: [None] for i in range(1, 25)}
+                        })
+                        
+                        filas_blanco = pd.DataFrame({
+                            "X": [None, None],
+                            **{i: [None, None] for i in range(1, 25)}
+                        })
+                        
+                        titulo_no_comprada = pd.DataFrame({
+                            "X": ["ENERGÍA NO COMPRADA AL VENDEDOR"],
+                            **{i: [None] for i in range(1, 25)}
+                        })
+                        
+                        df_final = pd.concat([
+                            titulo_comprar, 
+                            df_comprar, 
+                            filas_blanco, 
+                            titulo_no_comprada, 
+                            df_no_comprada
+                        ], ignore_index=True)
+                        
+                        # Asegurar que el nombre de la hoja no exceda los 31 caracteres
+                        sheet_name = nombre_hoja
+                        if len(sheet_name) > 31:
+                            sheet_name = sheet_name[:31]
+                        
+                        df_final.to_excel(writer, sheet_name=sheet_name, index=False)
+                
+                # Exportar demanda faltante con título
+                if "DEMANDA_FALTANTE" in resultados_dict:
+                    df_export = resultados_dict["DEMANDA_FALTANTE"].copy()
+                    df_export["X"] = df_export["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
+                    df_export = df_export.drop(columns=["FECHA"])
+                    df_export = df_export.sort_values("X")
+                    
+                    # Añadir un título a la hoja DEMANDA FALTANTE
+                    titulo_faltante = pd.DataFrame({
+                        "X": ["DEMANDA FALTANTE POR HORA Y DÍA"],
+                        **{i: [None] for i in range(1, 25)}
+                    })
+                    
+                    # Concatenar título y datos
+                    df_final = pd.concat([titulo_faltante, df_export], ignore_index=True)
+                    
+                    df_final.to_excel(writer, sheet_name="DEMANDA FALTANTE", index=False)
+                
+                # Exportar resumen
+                if "RESUMEN" in resultados_dict:
+                    df_export = resultados_dict["RESUMEN"].copy()
+                    fecha_formateada = df_export["FECHA"].apply(lambda x: x.strftime('%m/%Y'))
+                    df_export["FECHA"] = fecha_formateada
+                    df_export = df_export.sort_values("FECHA")
+                    df_export.to_excel(writer, sheet_name="RESUMEN", index=False)
+            
+            print(f"Resultados exportados a un nuevo archivo: {nueva_ruta}")
+            return True
+            
+        except Exception as alt_e:
+            logger.exception(f"Error al crear archivo alternativo: {alt_e}")
+            print(f"ERROR: No se pudo crear archivo alternativo: {alt_e}")
+            return False
