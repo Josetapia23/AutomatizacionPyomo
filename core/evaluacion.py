@@ -441,13 +441,17 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
             # 3. Exportar hoja de RESUMEN
             if "RESUMEN" in resultados_dict:
                 df_export = resultados_dict["RESUMEN"].copy()
-                # Formatear fecha como MM/YYYY
-                fecha_formateada = df_export["FECHA"].apply(lambda x: x.strftime('%m/%Y'))
-                df_export["FECHA"] = fecha_formateada
                 df_export = df_export.sort_values("FECHA")
-                df_export.to_excel(writer, sheet_name="RESUMEN", index=False)
-                logger.info(f"Hoja exportada: RESUMEN")
-        
+                titulos = {}
+                titulos["FECHA"] = ""
+                for col in df_export.columns:
+                    if col != "FECHA":
+                        titulos[col] = "CANTIDAD"
+                        titulo_df = pd.DataFrame([titulos])
+                        df_final = pd.concat([titulo_df, df_export], ignore_index=True)
+                        df_final.to_excel(writer, sheet_name="RESUMEN", index=False)
+                        logger.info(f"Hoja exportada: RESUMEN")
+
         print(f"Resultados exportados exitosamente a: {archivo_salida}")
         return True
     
@@ -547,3 +551,4 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
             logger.exception(f"Error al crear archivo alternativo: {alt_e}")
             print(f"ERROR: No se pudo crear archivo alternativo: {alt_e}")
             return False
+        

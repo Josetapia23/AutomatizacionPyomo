@@ -14,8 +14,7 @@ logger = logging.getLogger(__name__)
 
 def construir_modelo(demanda_df, ofertas_df):
     """
-    Construye el modelo de optimización utilizando Pyomo, 
-    con prioridades específicas para replicar la lógica del Excel.
+    Construye el modelo de optimización utilizando Pyomo.
     
     Args:
         demanda_df (DataFrame): DataFrame con los datos de demanda
@@ -116,31 +115,22 @@ def construir_modelo(demanda_df, ofertas_df):
     # Constante grande para restricciones big-M
     model.M = pyo.Param(initialize=1e10, doc='Constante para restricciones big-M')
     
-    # Asignar prioridades a las ofertas según su nombre
+    # Asignar prioridades a las ofertas de manera dinámica
     prioridad_dict = {}
-    for oferta in ofertas:
-        if "BTG" in oferta:
-            if "IT1" in oferta or "-" in oferta:  # Asumir que la forma base es IT1
-                prioridad_dict[oferta] = 1  # Primera prioridad: BTG IT1
-            elif "IT2" in oferta:
-                prioridad_dict[oferta] = 3  # Tercera prioridad: BTG IT2
-            else:
-                prioridad_dict[oferta] = 1  # Por defecto BTG es prioridad 1
-        elif "AES" in oferta:
-            prioridad_dict[oferta] = 2  # Segunda prioridad: AES
-        else:
-            # Verificar por patrón específico en el nombre de la oferta
-            if oferta.startswith("OP1_Wide-BTG"):
-                prioridad_dict[oferta] = 1
-            elif oferta.startswith("OP1_Wide-AES"):
-                prioridad_dict[oferta] = 2
-            else:
-                prioridad_dict[oferta] = 10  # Baja prioridad para otras ofertas
-    
-    # Imprimir las prioridades asignadas
-    print("Prioridades asignadas a ofertas:")
-    for oferta, prioridad in prioridad_dict.items():
-        print(f"  {oferta}: {prioridad}")
+    print("Asignando prioridades a ofertas de manera dinámica:")
+
+    # Ordenar ofertas alfabéticamente para tener un orden consistente
+    ofertas_ordenadas = sorted(ofertas)
+
+    # Asignación automática: simplemente numerarlas por orden alfabético
+    for i, oferta in enumerate(ofertas_ordenadas, 1):
+        prioridad_dict[oferta] = i
+        print(f"  Oferta: {oferta} - Prioridad: {i}")
+
+    # Imprimir resumen de prioridades asignadas
+    print("\nPrioridades finales asignadas a ofertas:")
+    for oferta, prioridad in sorted(prioridad_dict.items(), key=lambda x: x[1]):
+        print(f"  {oferta}: Prioridad {prioridad}")
     
     # Añadir parámetro de prioridad al modelo
     model.prioridad = pyo.Param(
@@ -243,14 +233,6 @@ def construir_modelo(demanda_df, ofertas_df):
         doc='Restricción de variable binaria para asignación'
     )
     
-    # Restricciones para implementar la lógica de asignación secuencial como en Excel
-    
-    # Identificar ofertas por tipo
-    ofertas_btg_it1 = [o for o in ofertas if model.prioridad[o] == 1]
-    ofertas_aes_it1 = [o for o in ofertas if model.prioridad[o] == 2]
-    ofertas_btg_it2 = [o for o in ofertas if model.prioridad[o] == 3]
-    
-    # No intentar agregar restricciones si no tenemos ofertas de un tipo
     logger.info(f"Modelo construido con {len(model.OFH)} combinaciones de ofertas válidas")
     print(f"Modelo construido con {len(model.OFH)} combinaciones de ofertas válidas")
     
@@ -270,41 +252,23 @@ def extraer_resultados(model):
     logger.info("Extrayendo resultados del modelo...")
     print("Extrayendo resultados del modelo...")
     
-    # Nombres específicos para las hojas
-    hojas_necesarias = [
-        "DEMANDA ASIGNADA BTG IT1",
-        "DEMANDA ASIGNADA AES IT1",
-        "DEMANDA ASIGNADA BTG IT2"
-    ]
-    
-    # Determinar qué ofertas corresponden a cada hoja
-    ofertas = sorted(list(model.I))
-    mapeo_ofertas = {}
-    
-    # Intentar asignar ofertas basándose en su nombre
-    for oferta in ofertas:
-        if "BTG" in oferta or "OP1_Wide-BTG" in oferta:
-            mapeo_ofertas["DEMANDA ASIGNADA BTG IT1"] = oferta
-        elif "AES" in oferta or "OP1_Wide-AES" in oferta:
-            mapeo_ofertas["DEMANDA ASIGNADA AES IT1"] = oferta
-    
-    # Asignación por defecto si no se encontraron ofertas específicas
-    if not mapeo_ofertas:
-        if len(ofertas) >= 1:
-            mapeo_ofertas["DEMANDA ASIGNADA BTG IT1"] = ofertas[0]
-        if len(ofertas) >= 2:
-            mapeo_ofertas["DEMANDA ASIGNADA AES IT1"] = ofertas[1]
-        if len(ofertas) >= 3:
-            mapeo_ofertas["DEMANDA ASIGNADA BTG IT2"] = ofertas[2]
-    
-    print("Mapeo de ofertas a hojas:")
-    for hoja, oferta in mapeo_ofertas.items():
-        print(f"  {hoja}: {oferta}")
-    
+    # Obtener todas las ofertas ordenadas por su prioridad
+    ofertas_por_prioridad = {}
+    for oferta in model.I:
+        prioridad = pyo.value(model.prioridad[oferta])
+        ofertas_por_prioridad[prioridad] = oferta
+
+    # Ordenar las ofertas por prioridad
+    ofertas_ordenadas = [ofertas_por_prioridad[p] for p in sorted(ofertas_por_prioridad.keys())]
+
     # Crear diccionarios para almacenar las asignaciones por oferta
     asignaciones_por_oferta = {}
     for oferta in model.I:
         asignaciones_por_oferta[oferta] = {}
+    
+    # Obtener todas las fechas y horas
+    todas_fechas = sorted(list(model.A))
+    todas_horas = sorted(list(model.H))
     
     # Extraer asignaciones para cada combinación de fecha y hora
     for a in model.A:
@@ -333,9 +297,6 @@ def extraer_resultados(model):
                     }
     
     # Asegurar que todas las fechas y horas estén en todas las ofertas
-    todas_fechas = sorted(list(model.A))
-    todas_horas = sorted(list(model.H))
-    
     for oferta in model.I:
         for fecha in todas_fechas:
             if fecha not in asignaciones_por_oferta[oferta]:
@@ -353,11 +314,61 @@ def extraer_resultados(model):
                         "DEMANDA TOTAL": demanda_total
                     }
     
+    # Identificar iteraciones por oferta basadas en la demanda
+    # Esto permitirá crear múltiples hojas para la misma oferta si es necesario
+    iteraciones_por_oferta = {}
+    demanda_restante = {}
+    
+    # Inicializar la demanda restante con la demanda total
+    for fecha in todas_fechas:
+        for hora in todas_horas:
+            demanda_restante[(fecha, hora)] = pyo.value(model.D[fecha, hora])
+    
+    # Determinar cuántas iteraciones se necesitan para cada oferta
+    for oferta in ofertas_ordenadas:
+        iteraciones = 1  # Comenzar con al menos una iteración
+        
+        while True:
+            demanda_cubierta = False
+            
+            # Verificar si esta oferta cubre demanda adicional
+            for fecha in todas_fechas:
+                for hora in todas_horas:
+                    if demanda_restante[(fecha, hora)] > 0:
+                        energia_disponible = asignaciones_por_oferta[oferta][fecha][hora]["CANTIDAD OFERTADA"]
+                        energia_asignable = min(energia_disponible, demanda_restante[(fecha, hora)])
+                        
+                        if energia_asignable > 0:
+                            demanda_cubierta = True
+                            demanda_restante[(fecha, hora)] -= energia_asignable
+            
+            # Si no hay más demanda a cubrir o esta oferta no puede cubrir más, terminar
+            if not demanda_cubierta:
+                break
+            
+            iteraciones += 1
+        
+        iteraciones_por_oferta[oferta] = iteraciones
+    
+    print("Iteraciones necesarias por oferta:")
+    for oferta, iteraciones in iteraciones_por_oferta.items():
+        print(f"  {oferta}: {iteraciones} iteraciones")
+    
+    # Crear mapeo de ofertas a hojas, considerando iteraciones
+    mapeo_ofertas = {}
+    for oferta in ofertas_ordenadas:
+        for it in range(1, iteraciones_por_oferta.get(oferta, 1) + 1):
+            mapeo_ofertas[f"DEMANDA ASIGNADA {oferta} IT{it}"] = (oferta, it)
+    
+    print("Mapeo de ofertas a hojas:")
+    for hoja, (oferta, it) in mapeo_ofertas.items():
+        print(f"  {hoja}: {oferta} (Iteración {it})")
+    
     # Crear DataFrames para cada formato requerido
     resultados = {}
     
     # 1. Crear DataFrames para "ENERGÍA A COMPRAR AL VENDEDOR"
-    for nombre_hoja, oferta in mapeo_ofertas.items():
+    for nombre_hoja, (oferta, iteracion) in mapeo_ofertas.items():
         energia_comprar_rows = []
         energia_no_comprada_rows = []
         
@@ -368,8 +379,14 @@ def extraer_resultados(model):
             
             for hora in range(1, 25):  # Asegurarse de incluir todas las horas de 1 a 24
                 # ENERGÍA A COMPRAR AL VENDEDOR
-                if hora in asignaciones_por_oferta[oferta][fecha]:
+                # En iteraciones posteriores, solo asignar si queda demanda
+                if hora in asignaciones_por_oferta[oferta][fecha] and iteracion == 1:
+                    # Para la primera iteración, usar asignación directamente
                     comprar_row[hora] = asignaciones_por_oferta[oferta][fecha][hora]["ENERGÍA ASIGNADA"]
+                elif hora in asignaciones_por_oferta[oferta][fecha]:
+                    # Para iteraciones posteriores, calcular según demanda restante
+                    # Este es un cálculo simplificado; se podría mejorar
+                    comprar_row[hora] = asignaciones_por_oferta[oferta][fecha][hora]["ENERGÍA ASIGNADA"] / iteracion
                 else:
                     comprar_row[hora] = 0
                 
@@ -380,6 +397,9 @@ def extraer_resultados(model):
                 
                 energia_asignada = comprar_row[hora]  # Ya calculada arriba
                 energia_no_comprada = max(0, cantidad_ofertada - energia_asignada)
+                # Redondear valores muy pequeños a cero
+                if energia_no_comprada < 0.01:
+                    energia_no_comprada = 0
                 no_comprada_row[hora] = energia_no_comprada
             
             energia_comprar_rows.append(comprar_row)
@@ -397,17 +417,8 @@ def extraer_resultados(model):
         row = {"FECHA": fecha, "X": fecha}
         
         for hora in todas_horas:
-            # Obtener la demanda total
-            demanda_total = pyo.value(model.D[fecha, hora])
-            
-            # Calcular la suma de energía asignada
-            energia_asignada_total = 0
-            for nombre_hoja, oferta in mapeo_ofertas.items():
-                if fecha in asignaciones_por_oferta[oferta] and hora in asignaciones_por_oferta[oferta][fecha]:
-                    energia_asignada_total += asignaciones_por_oferta[oferta][fecha][hora]["ENERGÍA ASIGNADA"]
-            
-            # Calcular el déficit
-            deficit = max(0, demanda_total - energia_asignada_total)
+            # Usar directamente el valor de déficit del modelo
+            deficit = pyo.value(model.ENA[fecha, hora])
             
             # Si es un valor muy pequeño, considerarlo como 0
             if deficit < 1e-6:
@@ -427,7 +438,7 @@ def extraer_resultados(model):
     for fecha in todas_fechas:
         mes = fecha.month
         año = fecha.year
-        key = f"{año}-{mes:02d}"
+        key = f"{mes:02d}/{año}"  # Formato MM/YYYY como en el ejemplo
         
         if key not in fechas_por_mes:
             fechas_por_mes[key] = []
@@ -435,14 +446,14 @@ def extraer_resultados(model):
         fechas_por_mes[key].append(fecha)
     
     # Para cada mes, calcular totales
-    for key, fechas in fechas_por_mes.items():
-        año, mes = key.split('-')
-        fecha_mostrar = datetime(int(año), int(mes), 1).date()
+    for key in sorted(fechas_por_mes.keys()):
+        fechas = fechas_por_mes[key]
         
-        row = {"FECHA": fecha_mostrar}
+        # Crear una fila para el mes actual
+        row = {"FECHA": key}
         
-        # Para cada oferta, calcular total asignado en el mes
-        for nombre_hoja, oferta in mapeo_ofertas.items():
+        # Calcular totales para cada oferta
+        for oferta in ofertas_ordenadas:
             total_asignado = 0
             
             for fecha in fechas:
@@ -450,7 +461,8 @@ def extraer_resultados(model):
                     if fecha in asignaciones_por_oferta[oferta] and hora in asignaciones_por_oferta[oferta][fecha]:
                         total_asignado += asignaciones_por_oferta[oferta][fecha][hora]["ENERGÍA ASIGNADA"]
             
-            row[nombre_hoja] = total_asignado
+            # Usar el nombre de la oferta como columna
+            row[oferta] = total_asignado
         
         resumen_rows.append(row)
     
