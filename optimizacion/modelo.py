@@ -241,253 +241,362 @@ def construir_modelo(demanda_df, ofertas_df):
 def extraer_resultados(model):
     """
     Extrae los resultados del modelo resuelto y los organiza en múltiples DataFrames
-    según el formato requerido en el Excel.
-    
-    Args:
-        model (ConcreteModel): Modelo de Pyomo resuelto
-        
-    Returns:
-        dict: Diccionario con los diferentes DataFrames de resultados
+    siguiendo la lógica original de Excel.
     """
     logger.info("Extrayendo resultados del modelo...")
     print("Extrayendo resultados del modelo...")
     
-    # Obtener todas las ofertas ordenadas por su prioridad
-    ofertas_por_prioridad = {}
-    for oferta in model.I:
-        prioridad = pyo.value(model.prioridad[oferta])
-        ofertas_por_prioridad[prioridad] = oferta
-
-    # Ordenar las ofertas por prioridad
-    ofertas_ordenadas = [ofertas_por_prioridad[p] for p in sorted(ofertas_por_prioridad.keys())]
-
-    # Crear diccionarios para almacenar las asignaciones por oferta
-    asignaciones_por_oferta = {}
-    for oferta in model.I:
-        asignaciones_por_oferta[oferta] = {}
+    # Obtener todas las ofertas disponibles
+    ofertas_disponibles = list(model.I)
+    print(f"Ofertas disponibles en el modelo: {ofertas_disponibles}")
+    
+    # Obtener las ofertas (suponiendo que BTG y AES siempre están presentes)
+    btg_oferta = None
+    aes_oferta = None
+    
+    for oferta in ofertas_disponibles:
+        oferta_str = str(oferta).upper()
+        if "BTG" in oferta_str or "BTK" in oferta_str:
+            btg_oferta = oferta
+        elif "AES" in oferta_str:
+            aes_oferta = oferta
+    
+    if not btg_oferta or not aes_oferta:
+        print("ADVERTENCIA: No se encontraron ofertas BTG o AES en nombres exactos.")
+        print("Buscando ofertas con nombres similares...")
+        
+        for oferta in ofertas_disponibles:
+            oferta_str = str(oferta).upper()
+            if not btg_oferta and ("BT" in oferta_str or "WIDE" in oferta_str):
+                btg_oferta = oferta
+                print(f"  Usando {oferta} como equivalente a BTG")
+            elif not aes_oferta and "A" in oferta_str:
+                aes_oferta = oferta
+                print(f"  Usando {oferta} como equivalente a AES")
+    
+    if not btg_oferta or not aes_oferta:
+        print("ADVERTENCIA: No se encontraron ofertas similares a BTG o AES. Usando las primeras dos ofertas disponibles.")
+        if len(ofertas_disponibles) >= 2:
+            btg_oferta = ofertas_disponibles[0]
+            aes_oferta = ofertas_disponibles[1]
+        else:
+            print("ERROR: No hay suficientes ofertas para continuar.")
+            return {}
+    
+    print(f"Usando oferta BTG: {btg_oferta}")
+    print(f"Usando oferta AES: {aes_oferta}")
     
     # Obtener todas las fechas y horas
     todas_fechas = sorted(list(model.A))
     todas_horas = sorted(list(model.H))
     
-    # Extraer asignaciones para cada combinación de fecha y hora
-    for a in model.A:
-        for h in model.H:
-            demanda_total = pyo.value(model.D[a, h])
-            deficit = pyo.value(model.ENA[a, h])
-            
-            # Para cada oferta en esta fecha y hora
-            for i in model.I:
-                if (i, a, h) in model.OFH:
-                    energia_asignada = pyo.value(model.EA[i, a, h])
-                    
-                    # Redondear valores muy pequeños a cero
-                    if abs(energia_asignada) < 1e-6:
-                        energia_asignada = 0
-                    
-                    # Almacenar la asignación (incluso si es cero)
-                    if a not in asignaciones_por_oferta[i]:
-                        asignaciones_por_oferta[i][a] = {}
-                    
-                    asignaciones_por_oferta[i][a][h] = {
-                        "ENERGÍA ASIGNADA": energia_asignada,
-                        "CANTIDAD OFERTADA": pyo.value(model.CO[i, a, h]),
-                        "PRECIO": pyo.value(model.PO[i, a, h]),
-                        "DEMANDA TOTAL": demanda_total
-                    }
+    print(f"Procesando {len(todas_fechas)} fechas y {len(todas_horas)} horas")
     
-    # Asegurar que todas las fechas y horas estén en todas las ofertas
-    for oferta in model.I:
-        for fecha in todas_fechas:
-            if fecha not in asignaciones_por_oferta[oferta]:
-                asignaciones_por_oferta[oferta][fecha] = {}
-            
-            for hora in todas_horas:
-                if hora not in asignaciones_por_oferta[oferta][fecha]:
-                    # Buscar la demanda total para esta fecha/hora
-                    demanda_total = pyo.value(model.D[fecha, hora])
-                    
-                    asignaciones_por_oferta[oferta][fecha][hora] = {
-                        "ENERGÍA ASIGNADA": 0,
-                        "CANTIDAD OFERTADA": 0,
-                        "PRECIO": 0,
-                        "DEMANDA TOTAL": demanda_total
-                    }
-    
-    # Identificar iteraciones por oferta basadas en la demanda
-    # Esto permitirá crear múltiples hojas para la misma oferta si es necesario
-    iteraciones_por_oferta = {}
-    demanda_restante = {}
-    
-    # Inicializar la demanda restante con la demanda total
-    for fecha in todas_fechas:
-        for hora in todas_horas:
-            demanda_restante[(fecha, hora)] = pyo.value(model.D[fecha, hora])
-    
-    # Determinar cuántas iteraciones se necesitan para cada oferta
-    for oferta in ofertas_ordenadas:
-        iteraciones = 1  # Comenzar con al menos una iteración
-        
-        while True:
-            demanda_cubierta = False
-            
-            # Verificar si esta oferta cubre demanda adicional
-            for fecha in todas_fechas:
-                for hora in todas_horas:
-                    if demanda_restante[(fecha, hora)] > 0:
-                        energia_disponible = asignaciones_por_oferta[oferta][fecha][hora]["CANTIDAD OFERTADA"]
-                        energia_asignable = min(energia_disponible, demanda_restante[(fecha, hora)])
-                        
-                        if energia_asignable > 0:
-                            demanda_cubierta = True
-                            demanda_restante[(fecha, hora)] -= energia_asignable
-            
-            # Si no hay más demanda a cubrir o esta oferta no puede cubrir más, terminar
-            if not demanda_cubierta:
-                break
-            
-            iteraciones += 1
-        
-        iteraciones_por_oferta[oferta] = iteraciones
-    
-    print("Iteraciones necesarias por oferta:")
-    for oferta, iteraciones in iteraciones_por_oferta.items():
-        print(f"  {oferta}: {iteraciones} iteraciones")
-    
-    # Crear mapeo de ofertas a hojas, considerando iteraciones
-    mapeo_ofertas = {}
-    for oferta in ofertas_ordenadas:
-        for it in range(1, iteraciones_por_oferta.get(oferta, 1) + 1):
-            mapeo_ofertas[f"DEMANDA ASIGNADA {oferta} IT{it}"] = (oferta, it)
-    
-    print("Mapeo de ofertas a hojas:")
-    for hoja, (oferta, it) in mapeo_ofertas.items():
-        print(f"  {hoja}: {oferta} (Iteración {it})")
-    
-    # Crear DataFrames para cada formato requerido
+    # Diccionarios para almacenar los resultados
     resultados = {}
     
-    # 1. Crear DataFrames para "ENERGÍA A COMPRAR AL VENDEDOR"
-    for nombre_hoja, (oferta, iteracion) in mapeo_ofertas.items():
-        energia_comprar_rows = []
-        energia_no_comprada_rows = []
+    try:
+        # Primer paso: BTG IT1
+        btg_it1_comprar = []
+        btg_it1_no_comprada = []
         
-        # Preparar estructura para ambas secciones
+        # Para cada fecha y hora, aplicar la lógica de BTG IT1
         for fecha in todas_fechas:
             comprar_row = {"FECHA": fecha, "X": fecha}
             no_comprada_row = {"FECHA": fecha, "X": fecha}
             
-            for hora in range(1, 25):  # Asegurarse de incluir todas las horas de 1 a 24
-                # ENERGÍA A COMPRAR AL VENDEDOR
-                # En iteraciones posteriores, solo asignar si queda demanda
-                if hora in asignaciones_por_oferta[oferta][fecha] and iteracion == 1:
-                    # Para la primera iteración, usar asignación directamente
-                    comprar_row[hora] = asignaciones_por_oferta[oferta][fecha][hora]["ENERGÍA ASIGNADA"]
-                elif hora in asignaciones_por_oferta[oferta][fecha]:
-                    # Para iteraciones posteriores, calcular según demanda restante
-                    # Este es un cálculo simplificado; se podría mejorar
-                    comprar_row[hora] = asignaciones_por_oferta[oferta][fecha][hora]["ENERGÍA ASIGNADA"] / iteracion
-                else:
+            for hora in range(1, 25):
+                # Usar try-except para manejar posibles errores al acceder a datos
+                try:
+                    demanda = pyo.value(model.D[fecha, hora]) if (fecha, hora) in model.D else 0
+                    
+                    # Lógica para BTG IT1 (primera iteración para BTG)
+                    energia_asignada = 0
+                    cantidad_btg = 0
+                    
+                    if (btg_oferta, fecha, hora) in model.OFH:
+                        precio_btg = pyo.value(model.PO[btg_oferta, fecha, hora])
+                        cantidad_btg = pyo.value(model.CO[btg_oferta, fecha, hora])
+                        
+                        if (aes_oferta, fecha, hora) in model.OFH:
+                            precio_aes = pyo.value(model.PO[aes_oferta, fecha, hora])
+                            # Comparar precios
+                            if precio_btg <= precio_aes:
+                                energia_asignada = min(demanda, cantidad_btg)
+                    
+                    comprar_row[hora] = energia_asignada
+                    no_comprada_row[hora] = max(0, cantidad_btg - energia_asignada)
+                    
+                except Exception as e:
+                    print(f"Error al procesar BTG IT1 - fecha: {fecha}, hora: {hora}: {e}")
                     comprar_row[hora] = 0
-                
-                # ENERGÍA NO COMPRADA AL VENDEDOR
-                cantidad_ofertada = 0
-                if (oferta, fecha, hora) in model.OFH:
-                    cantidad_ofertada = pyo.value(model.CO[oferta, fecha, hora])
-                
-                energia_asignada = comprar_row[hora]  # Ya calculada arriba
-                energia_no_comprada = max(0, cantidad_ofertada - energia_asignada)
-                # Redondear valores muy pequeños a cero
-                if energia_no_comprada < 0.01:
-                    energia_no_comprada = 0
-                no_comprada_row[hora] = energia_no_comprada
+                    no_comprada_row[hora] = 0
             
-            energia_comprar_rows.append(comprar_row)
-            energia_no_comprada_rows.append(no_comprada_row)
+            btg_it1_comprar.append(comprar_row)
+            btg_it1_no_comprada.append(no_comprada_row)
         
-        # Crear DataFrames
-        resultados[f"{nombre_hoja}_COMPRAR"] = pd.DataFrame(energia_comprar_rows)
-        resultados[f"{nombre_hoja}_NO_COMPRADA"] = pd.DataFrame(energia_no_comprada_rows)
-    
-    # 2. Crear DataFrame para "DEMANDA FALTANTE"
-    demanda_faltante_rows = []
-    
-    # Calcular la demanda faltante para cada fecha y hora
-    for fecha in todas_fechas:
-        row = {"FECHA": fecha, "X": fecha}
+        # Guardar BTG IT1
+        resultados["DEMANDA ASIGNADA BTG IT1_COMPRAR"] = pd.DataFrame(btg_it1_comprar)
+        resultados["DEMANDA ASIGNADA BTG IT1_NO_COMPRADA"] = pd.DataFrame(btg_it1_no_comprada)
         
-        for hora in todas_horas:
-            # Usar directamente el valor de déficit del modelo
-            deficit = pyo.value(model.ENA[fecha, hora])
+        print("BTG IT1 procesado correctamente")
+        
+        # Segundo paso: AES IT1
+        aes_it1_comprar = []
+        aes_it1_no_comprada = []
+        
+        for fecha in todas_fechas:
+            comprar_row = {"FECHA": fecha, "X": fecha}
+            no_comprada_row = {"FECHA": fecha, "X": fecha}
             
-            # Si es un valor muy pequeño, considerarlo como 0
-            if deficit < 1e-6:
-                deficit = 0
+            for hora in range(1, 25):
+                try:
+                    demanda = pyo.value(model.D[fecha, hora]) if (fecha, hora) in model.D else 0
+                    
+                    # Obtener BTG asignado
+                    btg_asignado = 0
+                    btg_df = resultados["DEMANDA ASIGNADA BTG IT1_COMPRAR"]
+                    fecha_rows = btg_df[btg_df["FECHA"] == fecha]
+                    if not fecha_rows.empty:
+                        btg_asignado = fecha_rows.iloc[0].get(hora, 0)
+                    
+                    # Demanda restante después de BTG IT1
+                    demanda_restante = demanda - btg_asignado
+                    
+                    # Lógica para AES IT1
+                    energia_asignada = 0
+                    cantidad_aes = 0
+                    
+                    if (aes_oferta, fecha, hora) in model.OFH and demanda_restante > 0:
+                        precio_aes = pyo.value(model.PO[aes_oferta, fecha, hora])
+                        cantidad_aes = pyo.value(model.CO[aes_oferta, fecha, hora])
+                        
+                        if (btg_oferta, fecha, hora) in model.OFH:
+                            precio_btg = pyo.value(model.PO[btg_oferta, fecha, hora])
+                            # Comparar precios (inverso a BTG IT1)
+                            if precio_aes <= precio_btg:
+                                energia_asignada = min(demanda_restante, cantidad_aes)
+                    
+                    comprar_row[hora] = energia_asignada
+                    no_comprada_row[hora] = max(0, cantidad_aes - energia_asignada)
                 
-            row[hora] = deficit
+                except Exception as e:
+                    print(f"Error al procesar AES IT1 - fecha: {fecha}, hora: {hora}: {e}")
+                    comprar_row[hora] = 0
+                    no_comprada_row[hora] = 0
+            
+            aes_it1_comprar.append(comprar_row)
+            aes_it1_no_comprada.append(no_comprada_row)
         
-        demanda_faltante_rows.append(row)
-    
-    resultados["DEMANDA_FALTANTE"] = pd.DataFrame(demanda_faltante_rows)
-    
-    # 3. Crear DataFrame para RESUMEN (mensuales)
-    resumen_rows = []
-    
-    # Agrupar fechas por mes
-    fechas_por_mes = {}
-    for fecha in todas_fechas:
-        mes = fecha.month
-        año = fecha.year
-        key = f"{mes:02d}/{año}"  # Formato MM/YYYY como en el ejemplo
+        # Guardar AES IT1
+        resultados["DEMANDA ASIGNADA AES IT1_COMPRAR"] = pd.DataFrame(aes_it1_comprar)
+        resultados["DEMANDA ASIGNADA AES IT1_NO_COMPRADA"] = pd.DataFrame(aes_it1_no_comprada)
         
-        if key not in fechas_por_mes:
-            fechas_por_mes[key] = []
+        print("AES IT1 procesado correctamente")
         
-        fechas_por_mes[key].append(fecha)
-    
-    # Para cada mes, calcular totales
-    for key in sorted(fechas_por_mes.keys()):
-        fechas = fechas_por_mes[key]
+        # Tercer paso: BTG IT2
+        btg_it2_comprar = []
+        btg_it2_no_comprada = []
         
-        # Crear una fila para el mes actual
-        row = {"FECHA": key}
+        for fecha in todas_fechas:
+            comprar_row = {"FECHA": fecha, "X": fecha}
+            no_comprada_row = {"FECHA": fecha, "X": fecha}
+            
+            for hora in range(1, 25):
+                try:
+                    demanda = pyo.value(model.D[fecha, hora]) if (fecha, hora) in model.D else 0
+                    
+                    # Obtener asignaciones previas
+                    btg_it1_asignado = 0
+                    aes_it1_asignado = 0
+                    
+                    btg_df = resultados["DEMANDA ASIGNADA BTG IT1_COMPRAR"]
+                    btg_fecha_rows = btg_df[btg_df["FECHA"] == fecha]
+                    if not btg_fecha_rows.empty:
+                        btg_it1_asignado = btg_fecha_rows.iloc[0].get(hora, 0)
+                    
+                    aes_df = resultados["DEMANDA ASIGNADA AES IT1_COMPRAR"]
+                    aes_fecha_rows = aes_df[aes_df["FECHA"] == fecha]
+                    if not aes_fecha_rows.empty:
+                        aes_it1_asignado = aes_fecha_rows.iloc[0].get(hora, 0)
+                    
+                    # Demanda restante después de BTG IT1 y AES IT1
+                    demanda_restante = demanda - btg_it1_asignado - aes_it1_asignado
+                    
+                    # Lógica para BTG IT2 (segunda iteración para BTG)
+                    energia_asignada = 0
+                    
+                    if (btg_oferta, fecha, hora) in model.OFH and demanda_restante > 0:
+                        # Energía no comprada de BTG en IT1
+                        btg_it1_no_comprada_val = 0
+                        btg_no_comprada_df = resultados["DEMANDA ASIGNADA BTG IT1_NO_COMPRADA"]
+                        btg_no_comprada_rows = btg_no_comprada_df[btg_no_comprada_df["FECHA"] == fecha]
+                        if not btg_no_comprada_rows.empty:
+                            btg_it1_no_comprada_val = btg_no_comprada_rows.iloc[0].get(hora, 0)
+                        
+                        # Asignar el mínimo entre la demanda restante y lo no comprado en IT1
+                        energia_asignada = min(demanda_restante, btg_it1_no_comprada_val)
+                    
+                    comprar_row[hora] = energia_asignada
+                    no_comprada_row[hora] = max(0, pyo.value(model.CO[btg_oferta, fecha, hora]) - btg_it1_asignado - energia_asignada) if (btg_oferta, fecha, hora) in model.OFH else 0
+                
+                except Exception as e:
+                    print(f"Error al procesar BTG IT2 - fecha: {fecha}, hora: {hora}: {e}")
+                    comprar_row[hora] = 0
+                    no_comprada_row[hora] = 0
+            
+            btg_it2_comprar.append(comprar_row)
+            btg_it2_no_comprada.append(no_comprada_row)
         
-        # Calcular totales para cada oferta
-        for oferta in ofertas_ordenadas:
-            total_asignado = 0
+        # Guardar BTG IT2
+        resultados["DEMANDA ASIGNADA BTG IT2_COMPRAR"] = pd.DataFrame(btg_it2_comprar)
+        resultados["DEMANDA ASIGNADA BTG IT2_NO_COMPRADA"] = pd.DataFrame(btg_it2_no_comprada)
+        
+        print("BTG IT2 procesado correctamente")
+        
+        # Cuarto paso: Demanda Faltante
+        demanda_faltante = []
+        
+        for fecha in todas_fechas:
+            row = {"FECHA": fecha, "X": fecha}
+            
+            for hora in range(1, 25):
+                try:
+                    demanda = pyo.value(model.D[fecha, hora]) if (fecha, hora) in model.D else 0
+                    
+                    # Sumar todas las asignaciones
+                    btg_it1_asignado = 0
+                    aes_it1_asignado = 0
+                    btg_it2_asignado = 0
+                    
+                    btg_df = resultados["DEMANDA ASIGNADA BTG IT1_COMPRAR"]
+                    btg_fecha_rows = btg_df[btg_df["FECHA"] == fecha]
+                    if not btg_fecha_rows.empty:
+                        btg_it1_asignado = btg_fecha_rows.iloc[0].get(hora, 0)
+                    
+                    aes_df = resultados["DEMANDA ASIGNADA AES IT1_COMPRAR"]
+                    aes_fecha_rows = aes_df[aes_df["FECHA"] == fecha]
+                    if not aes_fecha_rows.empty:
+                        aes_it1_asignado = aes_fecha_rows.iloc[0].get(hora, 0)
+                    
+                    btg2_df = resultados["DEMANDA ASIGNADA BTG IT2_COMPRAR"]
+                    btg2_fecha_rows = btg2_df[btg2_df["FECHA"] == fecha]
+                    if not btg2_fecha_rows.empty:
+                        btg_it2_asignado = btg2_fecha_rows.iloc[0].get(hora, 0)
+                    
+                    # Calcular demanda faltante
+                    faltante = demanda - btg_it1_asignado - aes_it1_asignado - btg_it2_asignado
+                    
+                    # Si es un valor muy pequeño, considerarlo como 0
+                    if abs(faltante) < 1e-6:
+                        faltante = 0
+                        
+                    row[hora] = faltante
+                
+                except Exception as e:
+                    print(f"Error al calcular demanda faltante - fecha: {fecha}, hora: {hora}: {e}")
+                    row[hora] = 0
+            
+            demanda_faltante.append(row)
+        
+        resultados["DEMANDA_FALTANTE"] = pd.DataFrame(demanda_faltante)
+        
+        print("Demanda faltante procesada correctamente")
+        
+        # Quinto paso: RESUMEN (mensuales) - VERSIÓN MEJORADA CON ORDEN CRONOLÓGICO
+        resumen_rows = []
+
+        # Agrupar fechas por mes
+        fechas_por_mes = {}
+        for fecha in todas_fechas:
+            mes = fecha.month
+            año = fecha.year
+            # Guardamos la fecha en formato numérico para poder ordenar correctamente después
+            key = (año, mes)  # Tupla (año, mes) para ordenar cronológicamente
+            display_key = f"{mes:02d}/{año}"  # Formato MM/YYYY para mostrar
+            
+            if key not in fechas_por_mes:
+                fechas_por_mes[key] = {
+                    "display": display_key,
+                    "fechas": []
+                }
+            
+            fechas_por_mes[key]["fechas"].append(fecha)
+
+        # Para cada mes, calcular totales - ordenamos por la clave numérica (año, mes)
+        for key in sorted(fechas_por_mes.keys()):
+            datos_mes = fechas_por_mes[key]
+            display_key = datos_mes["display"]
+            fechas = datos_mes["fechas"]
+            
+            # Crear una fila para el mes actual
+            row = {"FECHA": display_key}
+            
+            # Calcular totales para BTG y AES
+            total_btg = 0
+            total_aes = 0
             
             for fecha in fechas:
-                for hora in todas_horas:
-                    if fecha in asignaciones_por_oferta[oferta] and hora in asignaciones_por_oferta[oferta][fecha]:
-                        total_asignado += asignaciones_por_oferta[oferta][fecha][hora]["ENERGÍA ASIGNADA"]
+                # BTG IT1
+                btg_df = resultados["DEMANDA ASIGNADA BTG IT1_COMPRAR"]
+                btg_fecha_rows = btg_df[btg_df["FECHA"] == fecha]
+                if not btg_fecha_rows.empty:
+                    for hora in range(1, 25):
+                        total_btg += btg_fecha_rows.iloc[0].get(hora, 0)
+                
+                # BTG IT2
+                btg2_df = resultados["DEMANDA ASIGNADA BTG IT2_COMPRAR"]
+                btg2_fecha_rows = btg2_df[btg2_df["FECHA"] == fecha]
+                if not btg2_fecha_rows.empty:
+                    for hora in range(1, 25):
+                        total_btg += btg2_fecha_rows.iloc[0].get(hora, 0)
+                
+                # AES IT1
+                aes_df = resultados["DEMANDA ASIGNADA AES IT1_COMPRAR"]
+                aes_fecha_rows = aes_df[aes_df["FECHA"] == fecha]
+                if not aes_fecha_rows.empty:
+                    for hora in range(1, 25):
+                        total_aes += aes_fecha_rows.iloc[0].get(hora, 0)
             
-            # Usar el nombre de la oferta como columna
-            row[oferta] = total_asignado
+            row[btg_oferta] = total_btg
+            row[aes_oferta] = total_aes
+            
+            resumen_rows.append(row)
+
+        resultados["RESUMEN"] = pd.DataFrame(resumen_rows)
         
-        resumen_rows.append(row)
+        print("Resumen procesado correctamente")
+        
+        # Imprimir estadísticas
+        total_demanda = sum(pyo.value(model.D[a, h]) for a in model.A for h in model.H)
+        
+        # Calcular totales de asignación
+        total_asignado_btg_it1 = sum(row.get(hora, 0) for row in btg_it1_comprar for hora in range(1, 25))
+        total_asignado_aes_it1 = sum(row.get(hora, 0) for row in aes_it1_comprar for hora in range(1, 25))
+        total_asignado_btg_it2 = sum(row.get(hora, 0) for row in btg_it2_comprar for hora in range(1, 25))
+        total_asignado = total_asignado_btg_it1 + total_asignado_aes_it1 + total_asignado_btg_it2
+        
+        # Calcular déficit total
+        total_deficit = sum(row.get(hora, 0) for row in demanda_faltante for hora in range(1, 25))
+        
+        logger.info(f"Demanda total: {total_demanda:.2f} kWh")
+        logger.info(f"Energía asignada total: {total_asignado:.2f} kWh")
+        logger.info(f"  - BTG IT1: {total_asignado_btg_it1:.2f} kWh")
+        logger.info(f"  - AES IT1: {total_asignado_aes_it1:.2f} kWh")
+        logger.info(f"  - BTG IT2: {total_asignado_btg_it2:.2f} kWh")
+        logger.info(f"Déficit total: {total_deficit:.2f} kWh")
+        
+        if total_demanda > 0:
+            porcentaje_cubierto = (total_asignado / total_demanda) * 100
+            porcentaje_deficit = (total_deficit / total_demanda) * 100
+            logger.info(f"Porcentaje cubierto: {porcentaje_cubierto:.2f}%")
+            logger.info(f"Porcentaje déficit: {porcentaje_deficit:.2f}%")
+        
+        print(f"Resultados extraídos: {sum(len(df) for df in resultados.values())} filas en total")
     
-    resultados["RESUMEN"] = pd.DataFrame(resumen_rows)
-    
-    # Imprimir estadísticas de los resultados
-    total_demanda = sum(pyo.value(model.D[a, h]) for a in model.A for h in model.H)
-    total_asignado = 0
-    for oferta in model.I:
-        for fecha in asignaciones_por_oferta[oferta]:
-            for hora in asignaciones_por_oferta[oferta][fecha]:
-                total_asignado += asignaciones_por_oferta[oferta][fecha][hora]["ENERGÍA ASIGNADA"]
-    
-    total_deficit = sum(pyo.value(model.ENA[a, h]) for a in model.A for h in model.H)
-    
-    logger.info(f"Demanda total: {total_demanda:.2f} kWh")
-    logger.info(f"Energía asignada total: {total_asignado:.2f} kWh")
-    logger.info(f"Déficit total: {total_deficit:.2f} kWh")
-    
-    if total_demanda > 0:
-        porcentaje_cubierto = (total_asignado / total_demanda) * 100
-        porcentaje_deficit = (total_deficit / total_demanda) * 100
-        logger.info(f"Porcentaje cubierto: {porcentaje_cubierto:.2f}%")
-        logger.info(f"Porcentaje déficit: {porcentaje_deficit:.2f}%")
-    
-    print(f"Resultados extraídos: {sum(len(df) for df in resultados.values())} filas en total")
+    except Exception as e:
+        print(f"ERROR GENERAL en extraer_resultados: {e}")
+        import traceback
+        traceback.print_exc()
     
     return resultados
