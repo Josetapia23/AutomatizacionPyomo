@@ -154,7 +154,10 @@ def ejecutar_flujo_completo():
         asignaciones_df = extraer_resultados(model)
         
         # Calcular déficit total
-        deficit_total = asignaciones_df["DÉFICIT"].sum() if not asignaciones_df.empty else 0
+        if "DEMANDA_FALTANTE" in asignaciones_df:
+            deficit_total = sum(row.get(hora, 0) for row in asignaciones_df["DEMANDA_FALTANTE"] for hora in range(1, 25))
+        else:
+                deficit_total = 0
         demanda_total = asignaciones_df["DEMANDA TOTAL"].sum() if not asignaciones_df.empty else 0
         
         if deficit_total > 0:
