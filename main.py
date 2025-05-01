@@ -8,6 +8,7 @@ import sys
 import pandas as pd
 import logging
 import argparse
+import pyomo.environ as pyo
 from pathlib import Path
 
 # Configurar el path para encontrar el paquete
@@ -151,34 +152,80 @@ def ejecutar_flujo_completo():
         
         # Paso 10: Extraer resultados
         print("\n=== PASO 9: EXTRAER RESULTADOS ===")
-        asignaciones_df = extraer_resultados(model)
+        resultados_dict = extraer_resultados(model, ofertas_df)
         
         # Calcular déficit total
-        if "DEMANDA_FALTANTE" in asignaciones_df:
-            deficit_total = sum(row.get(hora, 0) for row in asignaciones_df["DEMANDA_FALTANTE"] for hora in range(1, 25))
+        if "DEMANDA_FALTANTE" in resultados_dict:
+            deficit_total = 0
+            demanda_faltante_df = resultados_dict["DEMANDA_FALTANTE"]
+            for _, row in demanda_faltante_df.iterrows():
+                for hora in range(1, 25):
+                    if hora in row:
+                        deficit_total += row[hora]
+            
+            # Calcular demanda total directamente del modelo
+            demanda_total = sum(pyo.value(model.D[a, h]) for a in model.A for h in model.H) # type: ignore
+            
+            if deficit_total > 0:
+                porcentaje_deficit = (deficit_total / demanda_total) * 100 if demanda_total > 0 else 0
+                print(f"ADVERTENCIA: Déficit total: {deficit_total:.2f} kWh ({porcentaje_deficit:.2f}% de la demanda)")
+                print("Esto significa que las ofertas disponibles no son suficientes para cubrir toda la demanda.")
+            else:
+                print("ÉXITO: Toda la demanda fue cubierta con las ofertas")
         else:
-                deficit_total = 0
-        demanda_total = asignaciones_df["DEMANDA TOTAL"].sum() if not asignaciones_df.empty else 0
-        
-        if deficit_total > 0:
-            porcentaje_deficit = (deficit_total / demanda_total) * 100 if demanda_total > 0 else 0
-            print(f"ADVERTENCIA: Déficit total: {deficit_total:.2f} kWh ({porcentaje_deficit:.2f}% de la demanda)")
-            print("Esto significa que las ofertas disponibles no son suficientes para cubrir toda la demanda.")
-        else:
-            print("ÉXITO: Toda la demanda fue cubierta con las ofertas")
+            print("No se encontró información de déficit en los resultados.")
         
         # Paso 11: Exportar asignaciones
-        print("\n=== PASO 10: EXPORTAR ASIGNACIONES ===")
-        exportar_asignaciones_por_oferta(asignaciones_df, RESULTADO_OFERTAS)
+        print("\n=== PASO 10: EXPORTAR RESULTADOS ===")
+        if not exportar_resultados_por_oferta(resultados_dict, RESULTADO_OFERTAS):
+            print("ERROR: No se pudieron exportar los resultados")
+            return False
         
-        # Paso 12: Crear hoja de demanda faltante
-        print("\n=== PASO 11: REGISTRAR DEMANDA FALTANTE ===")
-        crear_hoja_demanda_faltante(asignaciones_df, RESULTADO_OFERTAS)
+        # Paso 12: Calcular estadísticas
+        print("\n=== PASO 11: CALCULAR ESTADÍSTICAS ===")
+        try:
+            # Crear un DataFrame a partir de los resultados para las estadísticas
+            filas_stats = []
+            
+            # Agregar información general
+            for oferta in resultados_dict.get("RESUMEN", pd.DataFrame()).columns:
+                if "CANTIDAD" in oferta:
+                    nombre_oferta = oferta.replace(" CANTIDAD", "")
+                    cantidad = resultados_dict["RESUMEN"][oferta].sum()
+                    precio_col = f"{nombre_oferta} PRECIO PROMEDIO"
+                    precio_promedio = resultados_dict["RESUMEN"][precio_col].mean() if precio_col in resultados_dict["RESUMEN"].columns else 0
+                    
+                    filas_stats.append({
+                        "TIPO": "OFERTA",
+                        "IDENTIFICADOR": nombre_oferta,
+                        "TOTAL ASIGNADO (kWh)": cantidad,
+                        "PRECIO PROMEDIO": precio_promedio,
+                        "COSTO TOTAL": cantidad * precio_promedio
+                    })
+            
+            # Estadísticas generales si hay datos
+            if filas_stats:
+                total_general = sum(s["TOTAL ASIGNADO (kWh)"] for s in filas_stats)
+                costo_general = sum(s["COSTO TOTAL"] for s in filas_stats)
+                precio_promedio_general = costo_general / total_general if total_general > 0 else 0
+                
+                filas_stats.append({
+                    "TIPO": "TOTAL",
+                    "IDENTIFICADOR": "TODAS LAS OFERTAS",
+                    "TOTAL ASIGNADO (kWh)": total_general,
+                    "PRECIO PROMEDIO": precio_promedio_general,
+                    "COSTO TOTAL": costo_general
+                })
+                
+                stats_df = pd.DataFrame(filas_stats)
+                stats_df.to_excel(ESTADISTICAS_OFERTAS, index=False)
+                print(f"Estadísticas guardadas en {ESTADISTICAS_OFERTAS}")
+            else:
+                print("No hay suficientes datos para generar estadísticas")
         
-        # Paso 13: Calcular estadísticas
-        print("\n=== PASO 12: CALCULAR ESTADÍSTICAS ===")
-        stats_df = calcular_estadisticas_ofertas(asignaciones_df)
-        stats_df.to_excel(ESTADISTICAS_OFERTAS, index=False)
+        except Exception as e:
+            logger.warning(f"No se pudieron calcular estadísticas: {e}")
+            print(f"ADVERTENCIA: No se pudieron calcular estadísticas completas.")
         
         print("\n=== PROCESO COMPLETADO CON ÉXITO ===")
         return True
@@ -279,7 +326,7 @@ def optimizar_con_pyomo():
         
         # Extraer resultados en formato mejorado
         print("\n=== EXTRAYENDO RESULTADOS ===")
-        resultados_dict = extraer_resultados(model)
+        resultados_dict = extraer_resultados(model, ofertas_df)
         
         # Exportar resultados en el formato específico
         print("\n=== EXPORTANDO RESULTADOS ===")
@@ -289,56 +336,49 @@ def optimizar_con_pyomo():
         
         # Calcular estadísticas
         print("\n=== CALCULANDO ESTADÍSTICAS ===")
-        # Obtener el DataFrame de asignaciones
-        asignaciones_df = pd.DataFrame([
-            {
-                "CÓDIGO OFERTA": oferta,
-                "FECHA": fecha,
-                "HORA": hora,
-                "ENERGÍA ASIGNADA": data["ENERGÍA ASIGNADA"],
-                "CANTIDAD OFERTADA": data["CANTIDAD OFERTADA"],
-                "PRECIO": data["PRECIO"],
-                "DEMANDA TOTAL": data["DEMANDA TOTAL"]
-            }
-            for nombre, df in resultados_dict.items()
-            if nombre.startswith("DEMANDA_ASIGNADA_")
-            for oferta in [nombre.split("_")[2]]
-            for idx, row in df.iterrows()
-            for fecha in [row["FECHA"]]
-            for hora in range(1, 25)
-            if hora in row and row[hora] > 0
-            for data in [{
-                "ENERGÍA ASIGNADA": row[hora],
-                "CANTIDAD OFERTADA": ofertas_df[
-                    (ofertas_df["CÓDIGO OFERTA"] == oferta) & 
-                    (ofertas_df["FECHA"] == fecha) & 
-                    (ofertas_df["Atributo"] == hora)
-                ]["CANTIDAD"].values[0] if not ofertas_df[
-                    (ofertas_df["CÓDIGO OFERTA"] == oferta) & 
-                    (ofertas_df["FECHA"] == fecha) & 
-                    (ofertas_df["Atributo"] == hora)
-                ].empty else 0,
-                "PRECIO": ofertas_df[
-                    (ofertas_df["CÓDIGO OFERTA"] == oferta) & 
-                    (ofertas_df["FECHA"] == fecha) & 
-                    (ofertas_df["Atributo"] == hora)
-                ]["PRECIO INDEXADO"].values[0] if not ofertas_df[
-                    (ofertas_df["CÓDIGO OFERTA"] == oferta) & 
-                    (ofertas_df["FECHA"] == fecha) & 
-                    (ofertas_df["Atributo"] == hora)
-                ].empty else 0,
-                "DEMANDA TOTAL": demanda_df[
-                    (demanda_df["FECHA"] == fecha) & 
-                    (demanda_df["HORA"] == hora)
-                ]["DEMANDA"].values[0] if not demanda_df[
-                    (demanda_df["FECHA"] == fecha) & 
-                    (demanda_df["HORA"] == hora)
-                ].empty else 0
-            }]
-        ])
+        try:
+            # Crear un DataFrame a partir de los resultados para las estadísticas
+            filas_stats = []
+            
+            # Agregar información general
+            for oferta in resultados_dict.get("RESUMEN", pd.DataFrame()).columns:
+                if "CANTIDAD" in oferta:
+                    nombre_oferta = oferta.replace(" CANTIDAD", "")
+                    cantidad = resultados_dict["RESUMEN"][oferta].sum()
+                    precio_col = f"{nombre_oferta} PRECIO PROMEDIO"
+                    precio_promedio = resultados_dict["RESUMEN"][precio_col].mean() if precio_col in resultados_dict["RESUMEN"].columns else 0
+                    
+                    filas_stats.append({
+                        "TIPO": "OFERTA",
+                        "IDENTIFICADOR": nombre_oferta,
+                        "TOTAL ASIGNADO (kWh)": cantidad,
+                        "PRECIO PROMEDIO": precio_promedio,
+                        "COSTO TOTAL": cantidad * precio_promedio
+                    })
+            
+            # Estadísticas generales si hay datos
+            if filas_stats:
+                total_general = sum(s["TOTAL ASIGNADO (kWh)"] for s in filas_stats)
+                costo_general = sum(s["COSTO TOTAL"] for s in filas_stats)
+                precio_promedio_general = costo_general / total_general if total_general > 0 else 0
+                
+                filas_stats.append({
+                    "TIPO": "TOTAL",
+                    "IDENTIFICADOR": "TODAS LAS OFERTAS",
+                    "TOTAL ASIGNADO (kWh)": total_general,
+                    "PRECIO PROMEDIO": precio_promedio_general,
+                    "COSTO TOTAL": costo_general
+                })
+                
+                stats_df = pd.DataFrame(filas_stats)
+                stats_df.to_excel(ESTADISTICAS_OFERTAS, index=False)
+                print(f"Estadísticas guardadas en {ESTADISTICAS_OFERTAS}")
+            else:
+                print("No hay suficientes datos para generar estadísticas")
         
-        stats_df = calcular_estadisticas_ofertas(asignaciones_df)
-        stats_df.to_excel(ESTADISTICAS_OFERTAS, index=False)
+        except Exception as e:
+            logger.warning(f"No se pudieron calcular estadísticas: {e}")
+            print(f"ADVERTENCIA: No se pudieron calcular estadísticas completas.")
         
         print("\n=== PROCESO COMPLETADO CON ÉXITO ===")
         return True

@@ -214,6 +214,7 @@ def crear_proyeccion_precio_sicep(datos_iniciales=DATOS_INICIALES):
     """
     Crea o actualiza la hoja 'PROYECCIÓN PRECIO SICEP' en el archivo de datos iniciales,
     proyectando los precios mensuales a partir de los datos anuales.
+    También proyecta precios FNCER si están disponibles.
     
     Args:
         datos_iniciales (Path): Ruta al archivo de datos iniciales
@@ -221,7 +222,7 @@ def crear_proyeccion_precio_sicep(datos_iniciales=DATOS_INICIALES):
     Returns:
         bool: True si la operación fue exitosa, False en caso contrario
     """
-    logger.info(f"Creando proyección de precios SICEP en {datos_iniciales}")
+    logger.info(f"Creando proyección de precios SICEP y FNCER en {datos_iniciales}")
     
     # Verificar que el archivo de datos iniciales existe
     if not verificar_archivo_existe(datos_iniciales):
@@ -238,26 +239,38 @@ def crear_proyeccion_precio_sicep(datos_iniciales=DATOS_INICIALES):
             logger.error("No se pudo leer la hoja PRECIO SICEP con los datos anuales")
             return False
         
-        # Buscar columnas de año y precio
+        # Buscar columnas de año, precio y precio FNCER
         año_col = None
         precio_col = None
+        precio_fncer_col = None
         
         for col_name in sicep_anual_df.columns:
             col_str = str(col_name).upper()
             if "AÑO" in col_str or "ANO" in col_str or "YEAR" in col_str:
                 año_col = col_name
-            elif "PRECIO" in col_str or "PRICE" in col_str:
+            elif "SICEP FNCER" in col_str or "FNCER" in col_str:
+                precio_fncer_col = col_name
+            elif "PRECIO" in col_str:
                 precio_col = col_name
         
-        # Si no se encontraron, usar las dos primeras columnas
+        # Si no se encontraron, usar las columnas adecuadas
         if año_col is None:
-            año_col = sicep_anual_df.columns[0]
+            año_col = sicep_anual_df.columns[0]  # Primera columna
         if precio_col is None:
             if len(sicep_anual_df.columns) > 1:
-                precio_col = sicep_anual_df.columns[1]
+                precio_col = sicep_anual_df.columns[1]  # Segunda columna
             else:
                 logger.error("No hay suficientes columnas en la hoja PRECIO SICEP")
                 return False
+        
+        # Comprobar si existe la columna FNCER
+        tiene_fncer = precio_fncer_col is not None
+        if tiene_fncer:
+            logger.info("Se encontró columna FNCER, se calculará proyección para ambos precios")
+            print("Se encontró columna FNCER, se calculará proyección para ambos precios")
+        else:
+            logger.info("No se encontró columna FNCER, solo se calculará proyección para SICEP")
+            print("No se encontró columna FNCER, solo se calculará proyección para SICEP")
         
         # Asegurarse de que los años sean numéricos
         sicep_anual_df[año_col] = pd.to_numeric(sicep_anual_df[año_col], errors='coerce')
@@ -265,10 +278,17 @@ def crear_proyeccion_precio_sicep(datos_iniciales=DATOS_INICIALES):
         
         # Extraer los precios por año
         precios_por_año = {}
+        precios_fncer_por_año = {}
+        
         for _, row in sicep_anual_df.iterrows():
             año = int(row[año_col])  # Convertir a entero para usar como clave
             precio = float(row[precio_col])  # Convertir a float para cálculos
             precios_por_año[año] = precio
+            
+            # Registrar precio FNCER si existe
+            if tiene_fncer:
+                precio_fncer = float(row[precio_fncer_col])
+                precios_fncer_por_año[año] = precio_fncer
             
         if not precios_por_año:
             logger.error("No se encontraron precios válidos en la hoja PRECIO SICEP")
@@ -276,6 +296,10 @@ def crear_proyeccion_precio_sicep(datos_iniciales=DATOS_INICIALES):
             
         logger.info(f"Precios por año: {precios_por_año}")
         print(f"Precios por año encontrados: {precios_por_año}")
+        
+        if tiene_fncer:
+            logger.info(f"Precios FNCER por año: {precios_fncer_por_año}")
+            print(f"Precios FNCER por año encontrados: {precios_fncer_por_año}")
         
     except Exception as e:
         logger.error(f"Error al leer PRECIO SICEP: {e}")
@@ -302,7 +326,7 @@ def crear_proyeccion_precio_sicep(datos_iniciales=DATOS_INICIALES):
         return False
     
     # Solicitar fecha base
-    print("\nLa fecha base es necesaria para calcular correctamente los precios mensuales del SICEP.")
+    print("\nLa fecha base es necesaria para calcular correctamente los precios mensuales del SICEP y FNCER.")
     print("Esta fecha es el punto de referencia desde el cual se realizarán las proyecciones.")
     
     fecha_base_str = solicitar_input_seguro(
@@ -340,6 +364,8 @@ def crear_proyeccion_precio_sicep(datos_iniciales=DATOS_INICIALES):
     
     # Buscar el precio base (precio del año correspondiente a la fecha base o precio mínimo)
     año_base = fecha_base.year
+    
+    # Para SICEP normal
     if año_base in precios_por_año:
         precio_base = precios_por_año[año_base]
     else:
@@ -354,8 +380,29 @@ def crear_proyeccion_precio_sicep(datos_iniciales=DATOS_INICIALES):
             año_cercano = max(años)
             precio_base = precios_por_año[año_cercano]
     
+    # Para FNCER si existe
+    precio_fncer_base = None
+    if tiene_fncer:
+        if año_base in precios_fncer_por_año:
+            precio_fncer_base = precios_fncer_por_año[año_base]
+        else:
+            # Si no hay precio para el año base, buscar el precio del año más cercano
+            años = list(precios_fncer_por_año.keys())
+            años_cercanos = [año for año in años if año >= año_base]
+            if años_cercanos:
+                año_cercano = min(años_cercanos)
+                precio_fncer_base = precios_fncer_por_año[año_cercano]
+            else:
+                # Si no hay años posteriores, usar el último año disponible
+                año_cercano = max(años)
+                precio_fncer_base = precios_fncer_por_año[año_cercano]
+    
     logger.info(f"Precio base para {fecha_base}: {precio_base}")
     print(f"Precio base para {fecha_base}: {precio_base}")
+    
+    if tiene_fncer:
+        logger.info(f"Precio FNCER base para {fecha_base}: {precio_fncer_base}")
+        print(f"Precio FNCER base para {fecha_base}: {precio_fncer_base}")
     
     # Determinar el rango de fechas
     fecha_min = fecha_base  # La fecha mínima es la fecha base
@@ -365,11 +412,17 @@ def crear_proyeccion_precio_sicep(datos_iniciales=DATOS_INICIALES):
     proyeccion_sicep = []
     
     # Primer registro (fecha base)
-    proyeccion_sicep.append({
+    primer_registro = {
         "FECHA": fecha_base,
         "IPP": round(ipp_base, 2),
         "PRECIO": round(precio_base, 2)
-    })
+    }
+    
+    # Añadir precio FNCER si corresponde
+    if tiene_fncer:
+        primer_registro["PRECIO FNCER"] = round(precio_fncer_base, 2)
+    
+    proyeccion_sicep.append(primer_registro)
     
     # Generar meses siguientes
     fecha_actual = fecha_base
@@ -403,33 +456,63 @@ def crear_proyeccion_precio_sicep(datos_iniciales=DATOS_INICIALES):
             continue
         
         # Verificar si cambiamos de año
+        nuevo_registro = {"FECHA": fecha_siguiente, "IPP": round(ipp_siguiente, 2)}
+        
         if fecha_siguiente.day == 1 and fecha_siguiente.month == 1:
-            # Usar el precio del nuevo año si está disponible
-            if fecha_siguiente.year in precios_por_año:
-                precio_base = precios_por_año[fecha_siguiente.year]
+            # SICEP: Usar el precio del nuevo año si está disponible
+            año_siguiente = fecha_siguiente.year
+            
+            if año_siguiente in precios_por_año:
+                # Usar el precio de la tabla para este nuevo año
+                nuevo_precio_base = precios_por_año[año_siguiente]
                 
-                # Calcular el nuevo precio usando el IPP base y el IPP del nuevo año
-                # La fórmula es: nuevo_precio = precio_base * (ipp_actual / ipp_base)
-                precio_siguiente = round(precio_base * (ipp_siguiente / ipp_base), 2)
+                # Calcular el nuevo precio usando el nuevo precio y la relación de índices
+                precio_siguiente = round(nuevo_precio_base * (ipp_siguiente / ipp_base), 2)
+                
+                # Actualizar el registro
+                nuevo_registro["PRECIO"] = precio_siguiente
             else:
-                # Si no hay precio para el nuevo año, continuar con la proyección
+                # Si no hay precio para el nuevo año, continuar con la proyección normal
                 precio_anterior = proyeccion_sicep[-1]["PRECIO"]
                 ipp_anterior = proyeccion_sicep[-1]["IPP"]
                 
                 precio_siguiente = round(precio_anterior * (ipp_siguiente / ipp_anterior), 2)
+                nuevo_registro["PRECIO"] = precio_siguiente
+            
+            # FNCER: Usar el precio del nuevo año si está disponible
+            if tiene_fncer:
+                if año_siguiente in precios_fncer_por_año:
+                    # Usar el precio FNCER de la tabla para este nuevo año
+                    nuevo_precio_fncer_base = precios_fncer_por_año[año_siguiente]
+                    
+                    # Calcular el nuevo precio FNCER
+                    precio_fncer_siguiente = round(nuevo_precio_fncer_base * (ipp_siguiente / ipp_base), 2)
+                    
+                    # Actualizar el registro
+                    nuevo_registro["PRECIO FNCER"] = precio_fncer_siguiente
+                else:
+                    # Si no hay precio FNCER para el nuevo año, continuar con la proyección normal
+                    precio_fncer_anterior = proyeccion_sicep[-1]["PRECIO FNCER"]
+                    ipp_anterior = proyeccion_sicep[-1]["IPP"]
+                    
+                    precio_fncer_siguiente = round(precio_fncer_anterior * (ipp_siguiente / ipp_anterior), 2)
+                    nuevo_registro["PRECIO FNCER"] = precio_fncer_siguiente
         else:
-            # Proyección mensual normal
+            # Proyección mensual normal para SICEP
             precio_anterior = proyeccion_sicep[-1]["PRECIO"]
             ipp_anterior = proyeccion_sicep[-1]["IPP"]
             
             precio_siguiente = round(precio_anterior * (ipp_siguiente / ipp_anterior), 2)
+            nuevo_registro["PRECIO"] = precio_siguiente
+            
+            # Proyección mensual normal para FNCER si corresponde
+            if tiene_fncer:
+                precio_fncer_anterior = proyeccion_sicep[-1]["PRECIO FNCER"]
+                precio_fncer_siguiente = round(precio_fncer_anterior * (ipp_siguiente / ipp_anterior), 2)
+                nuevo_registro["PRECIO FNCER"] = precio_fncer_siguiente
         
         # Agregar a la proyección
-        proyeccion_sicep.append({
-            "FECHA": fecha_siguiente,
-            "IPP": round(ipp_siguiente, 2),
-            "PRECIO": precio_siguiente
-        })
+        proyeccion_sicep.append(nuevo_registro)
         
         # Avanzar al siguiente mes
         fecha_actual = fecha_siguiente
@@ -454,8 +537,12 @@ def crear_proyeccion_precio_sicep(datos_iniciales=DATOS_INICIALES):
     )
     
     if resultado:
-        logger.info(f"Proyección de precios SICEP creada correctamente con {len(proyeccion_sicep)} registros")
-        print(f"Proyección de precios SICEP creada correctamente con {len(proyeccion_sicep)} registros")
+        if tiene_fncer:
+            logger.info(f"Proyección de precios SICEP y FNCER creada correctamente con {len(proyeccion_sicep)} registros")
+            print(f"Proyección de precios SICEP y FNCER creada correctamente con {len(proyeccion_sicep)} registros")
+        else:
+            logger.info(f"Proyección de precios SICEP creada correctamente con {len(proyeccion_sicep)} registros")
+            print(f"Proyección de precios SICEP creada correctamente con {len(proyeccion_sicep)} registros")
     else:
         logger.error("Error al guardar la proyección de precios SICEP")
     

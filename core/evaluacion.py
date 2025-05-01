@@ -326,6 +326,8 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
     """
     Exporta los resultados de la optimización al formato específico requerido,
     preservando las hojas existentes como TABLA MAESTRA y CANTIDADES Y PRECIOS.
+    Ahora usa hojas separadas para energía asignada (DA) y no asignada (ENA).
+    También incluye resumen de precios sin indexar.
     
     Args:
         resultados_dict (dict): Diccionario con los DataFrames de resultados
@@ -349,7 +351,7 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
         modo = 'a' if archivo_existe else 'w'
         
         with pd.ExcelWriter(archivo_salida, engine='openpyxl', mode=modo, if_sheet_exists='replace') as writer:
-            # 1. Exportar hojas de DEMANDA ASIGNADA por oferta
+            # 1. Exportar hojas de DA (DEMANDA ASIGNADA) y ENA (ENERGÍA NO ASIGNADA) por oferta
             # Agrupar resultados por hoja
             hojas_por_nombre = {}
             
@@ -364,60 +366,71 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                     
                     hojas_por_nombre[nombre_base][tipo] = df
             
-            # Para cada nombre de hoja, crear la hoja con ambos cuadros
+            # Para cada nombre de hoja, crear dos hojas separadas
             for nombre_hoja, datos in hojas_por_nombre.items():
                 df_comprar = datos.get("COMPRAR", pd.DataFrame())
                 df_no_comprada = datos.get("NO_COMPRADA", pd.DataFrame())
                 
-                if not df_comprar.empty and not df_no_comprada.empty:
-                    # Mantener el orden cronológico original sin ordenar por X
+                # 1. Procesar la energía asignada (DA)
+                if not df_comprar.empty:
+                    # Mantener el orden cronológico original
                     df_comprar_ordenado = df_comprar.copy()
-                    df_no_comprada_ordenado = df_no_comprada.copy()
                     
                     # Convertir fechas a formato string DD/MM/YYYY manteniendo el orden original
                     df_comprar_ordenado["X"] = df_comprar_ordenado["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
-                    df_no_comprada_ordenado["X"] = df_no_comprada_ordenado["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
                     
                     # Eliminar columna FECHA (mantener sólo X)
                     df_comprar_ordenado = df_comprar_ordenado.drop(columns=["FECHA"])
-                    df_no_comprada_ordenado = df_no_comprada_ordenado.drop(columns=["FECHA"])
                     
-                    # Crear un nuevo DataFrame con ambos cuadros
-                    # Primero añadir un título para el primer cuadro
+                    # Añadir un título para el cuadro
                     titulo_comprar = pd.DataFrame({
                         "X": ["ENERGÍA A COMPRAR AL VENDEDOR"],
                         **{i: [None] for i in range(1, 25)}  # Columnas del 1 al 24
                     })
                     
-                    # Añadir algunas filas en blanco entre los cuadros
-                    filas_blanco = pd.DataFrame({
-                        "X": [None, None],
-                        **{i: [None, None] for i in range(1, 25)}  # Columnas del 1 al 24
-                    })
+                    # Concatenar título y datos
+                    df_final_comprar = pd.concat([titulo_comprar, df_comprar_ordenado], ignore_index=True)
                     
-                    # Título para el segundo cuadro
+                    # Asegurar que el nombre de la hoja no exceda los 31 caracteres
+                    # Usar formato abreviado DA-[CÓDIGO OFERTA]
+                    codigo_oferta = nombre_hoja.replace("DEMANDA ASIGNADA ", "")
+                    sheet_name = f"DA-{codigo_oferta}"
+                    if len(sheet_name) > 31:
+                        sheet_name = sheet_name[:31]
+                    
+                    # Exportar sin el índice
+                    df_final_comprar.to_excel(writer, sheet_name=sheet_name, index=False)
+                    logger.info(f"Hoja exportada: {sheet_name}")
+                
+                # 2. Procesar la energía no asignada (ENA)
+                if not df_no_comprada.empty:
+                    # Mantener el orden cronológico original
+                    df_no_comprada_ordenado = df_no_comprada.copy()
+                    
+                    # Convertir fechas a formato string DD/MM/YYYY manteniendo el orden original
+                    df_no_comprada_ordenado["X"] = df_no_comprada_ordenado["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
+                    
+                    # Eliminar columna FECHA (mantener sólo X)
+                    df_no_comprada_ordenado = df_no_comprada_ordenado.drop(columns=["FECHA"])
+                    
+                    # Añadir un título para el cuadro
                     titulo_no_comprada = pd.DataFrame({
                         "X": ["ENERGÍA NO COMPRADA AL VENDEDOR"],
                         **{i: [None] for i in range(1, 25)}  # Columnas del 1 al 24
                     })
                     
-                    # Concatenar todo
-                    df_final = pd.concat([
-                        titulo_comprar, 
-                        df_comprar_ordenado, 
-                        filas_blanco, 
-                        titulo_no_comprada, 
-                        df_no_comprada_ordenado
-                    ], ignore_index=True)
+                    # Concatenar título y datos
+                    df_final_no_comprada = pd.concat([titulo_no_comprada, df_no_comprada_ordenado], ignore_index=True)
                     
-                    # Asegurar que el nombre de la hoja no exceda los 31 caracteres
-                    sheet_name = nombre_hoja
-                    if len(sheet_name) > 31:
-                        sheet_name = sheet_name[:31]
+                    # Usar formato abreviado ENA-[CÓDIGO OFERTA]
+                    codigo_oferta = nombre_hoja.replace("DEMANDA ASIGNADA ", "")
+                    sheet_name_ena = f"ENA-{codigo_oferta}"
+                    if len(sheet_name_ena) > 31:
+                        sheet_name_ena = sheet_name_ena[:31]
                     
                     # Exportar sin el índice
-                    df_final.to_excel(writer, sheet_name=sheet_name, index=False)
-                    logger.info(f"Hoja exportada: {sheet_name}")
+                    df_final_no_comprada.to_excel(writer, sheet_name=sheet_name_ena, index=False)
+                    logger.info(f"Hoja exportada: {sheet_name_ena}")
             
             # 2. Exportar hoja de DEMANDA FALTANTE
             if "DEMANDA_FALTANTE" in resultados_dict:
@@ -462,6 +475,29 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                 
                 df_final.to_excel(writer, sheet_name="RESUMEN", index=False)
                 logger.info(f"Hoja exportada: RESUMEN")
+            
+            # 4. Exportar hoja de RESUMEN SIN INDEXAR
+            if "RESUMEN SIN INDEXAR" in resultados_dict:
+                df_export = resultados_dict["RESUMEN SIN INDEXAR"].copy()
+                
+                # El formato de fecha ya está establecido como MM/YYYY
+                # No reordenar, preservar el orden original
+                
+                # Crear títulos dinámicamente según las columnas disponibles
+                titulos = {}
+                titulos["FECHA"] = ""
+                for col in df_export.columns:
+                    if col != "FECHA":
+                        titulos[col] = "CANTIDAD"
+                
+                # Añadir la fila de títulos
+                titulo_df = pd.DataFrame([titulos])
+                
+                # Concatenar título y datos
+                df_final = pd.concat([titulo_df, df_export], ignore_index=True)
+                
+                df_final.to_excel(writer, sheet_name="RESUMEN SIN INDEXAR", index=False)
+                logger.info(f"Hoja exportada: RESUMEN SIN INDEXAR")
         
         print(f"Resultados exportados exitosamente a: {archivo_salida}")
         return True
@@ -484,49 +520,63 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                     df_comprar = datos.get("COMPRAR", pd.DataFrame())
                     df_no_comprada = datos.get("NO_COMPRADA", pd.DataFrame())
                     
-                    if not df_comprar.empty and not df_no_comprada.empty:
-                        # Mantener el orden cronológico
+                    # 1. Procesar la energía asignada (DA)
+                    if not df_comprar.empty:
+                        # Mantener el orden cronológico original
                         df_comprar_ordenado = df_comprar.copy()
-                        df_no_comprada_ordenado = df_no_comprada.copy()
                         
                         # Convertir fechas a formato string DD/MM/YYYY
                         df_comprar_ordenado["X"] = df_comprar_ordenado["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
-                        df_no_comprada_ordenado["X"] = df_no_comprada_ordenado["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
                         
                         # Eliminar columna FECHA (mantener sólo X)
                         df_comprar_ordenado = df_comprar_ordenado.drop(columns=["FECHA"])
-                        df_no_comprada_ordenado = df_no_comprada_ordenado.drop(columns=["FECHA"])
                         
-                        # Resto del procesamiento...
+                        # Añadir un título para el cuadro
                         titulo_comprar = pd.DataFrame({
                             "X": ["ENERGÍA A COMPRAR AL VENDEDOR"],
-                            **{i: [None] for i in range(1, 25)}
+                            **{i: [None] for i in range(1, 25)}  # Columnas del 1 al 24
                         })
                         
-                        filas_blanco = pd.DataFrame({
-                            "X": [None, None],
-                            **{i: [None, None] for i in range(1, 25)}
-                        })
-                        
-                        titulo_no_comprada = pd.DataFrame({
-                            "X": ["ENERGÍA NO COMPRADA AL VENDEDOR"],
-                            **{i: [None] for i in range(1, 25)}
-                        })
-                        
-                        df_final = pd.concat([
-                            titulo_comprar, 
-                            df_comprar_ordenado, 
-                            filas_blanco, 
-                            titulo_no_comprada, 
-                            df_no_comprada_ordenado
-                        ], ignore_index=True)
+                        # Concatenar título y datos
+                        df_final_comprar = pd.concat([titulo_comprar, df_comprar_ordenado], ignore_index=True)
                         
                         # Asegurar que el nombre de la hoja no exceda los 31 caracteres
-                        sheet_name = nombre_hoja
+                        codigo_oferta = nombre_hoja.replace("DEMANDA ASIGNADA ", "")
+                        sheet_name = f"DA-{codigo_oferta}"
                         if len(sheet_name) > 31:
                             sheet_name = sheet_name[:31]
                         
-                        df_final.to_excel(writer, sheet_name=sheet_name, index=False)
+                        # Exportar sin el índice
+                        df_final_comprar.to_excel(writer, sheet_name=sheet_name, index=False)
+                    
+                    # 2. Procesar la energía no asignada (ENA)
+                    if not df_no_comprada.empty:
+                        # Mantener el orden cronológico original
+                        df_no_comprada_ordenado = df_no_comprada.copy()
+                        
+                        # Convertir fechas a formato string DD/MM/YYYY
+                        df_no_comprada_ordenado["X"] = df_no_comprada_ordenado["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
+                        
+                        # Eliminar columna FECHA (mantener sólo X)
+                        df_no_comprada_ordenado = df_no_comprada_ordenado.drop(columns=["FECHA"])
+                        
+                        # Añadir un título para el cuadro
+                        titulo_no_comprada = pd.DataFrame({
+                            "X": ["ENERGÍA NO COMPRADA AL VENDEDOR"],
+                            **{i: [None] for i in range(1, 25)}  # Columnas del 1 al 24
+                        })
+                        
+                        # Concatenar título y datos
+                        df_final_no_comprada = pd.concat([titulo_no_comprada, df_no_comprada_ordenado], ignore_index=True)
+                        
+                        # Usar formato abreviado ENA-[CÓDIGO OFERTA]
+                        codigo_oferta = nombre_hoja.replace("DEMANDA ASIGNADA ", "")
+                        sheet_name_ena = f"ENA-{codigo_oferta}"
+                        if len(sheet_name_ena) > 31:
+                            sheet_name_ena = sheet_name_ena[:31]
+                        
+                        # Exportar sin el índice
+                        df_final_no_comprada.to_excel(writer, sheet_name=sheet_name_ena, index=False)
                 
                 # Exportar demanda faltante con título
                 if "DEMANDA_FALTANTE" in resultados_dict:
@@ -537,7 +587,7 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                     # Añadir un título a la hoja DEMANDA FALTANTE
                     titulo_faltante = pd.DataFrame({
                         "X": ["DEMANDA FALTANTE POR HORA Y DÍA"],
-                        **{i: [None] for i in range(1, 25)}
+                        **{i: [None] for i in range(1, 25)}  # Columnas del 1 al 24
                     })
                     
                     # Concatenar título y datos
@@ -563,6 +613,25 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                     df_final = pd.concat([titulo_df, df_export], ignore_index=True)
                     
                     df_final.to_excel(writer, sheet_name="RESUMEN", index=False)
+                
+                # Exportar resumen sin indexar
+                if "RESUMEN SIN INDEXAR" in resultados_dict:
+                    df_export = resultados_dict["RESUMEN SIN INDEXAR"].copy()
+                    
+                    # Crear títulos dinámicamente según las columnas disponibles
+                    titulos = {}
+                    titulos["FECHA"] = ""
+                    for col in df_export.columns:
+                        if col != "FECHA":
+                            titulos[col] = "CANTIDAD"
+                    
+                    # Añadir la fila de títulos
+                    titulo_df = pd.DataFrame([titulos])
+                    
+                    # Concatenar título y datos
+                    df_final = pd.concat([titulo_df, df_export], ignore_index=True)
+                    
+                    df_final.to_excel(writer, sheet_name="RESUMEN SIN INDEXAR", index=False)
             
             print(f"Resultados exportados a un nuevo archivo: {nueva_ruta}")
             return True
@@ -571,4 +640,3 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
             logger.exception(f"Error al crear archivo alternativo: {alt_e}")
             print(f"ERROR: No se pudo crear archivo alternativo: {alt_e}")
             return False
-        

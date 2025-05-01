@@ -25,16 +25,16 @@ logger = logging.getLogger(__name__)
 
 def procesar_precio_sicep(datos_iniciales=DATOS_INICIALES):
     """
-    Procesa los precios SICEP y crea un diccionario para su uso en la evaluación de ofertas.
+    Procesa los precios SICEP y FNCER y crea un diccionario para su uso en la evaluación de ofertas.
     Ahora usa la hoja 'PROYECCIÓN PRECIO SICEP' si existe, o la crea si no existe.
     
     Args:
         datos_iniciales (Path): Ruta al archivo de datos iniciales
         
     Returns:
-        dict: Diccionario con los valores de PRECIO por año-mes, o None en caso de error
+        dict: Diccionario con los valores de PRECIO y PRECIO FNCER por año-mes, o None en caso de error
     """
-    logger.info(f"Procesando PRECIO SICEP desde {datos_iniciales}")
+    logger.info(f"Procesando PRECIO SICEP y FNCER desde {datos_iniciales}")
     
     # Verificar que el archivo existe
     if not verificar_archivo_existe(datos_iniciales):
@@ -78,13 +78,20 @@ def procesar_precio_sicep(datos_iniciales=DATOS_INICIALES):
         # Crear columna auxiliar para agrupar por año-mes
         sicep_df['AUX'] = sicep_df['FECHA'].apply(lambda d: f"{d.year}-{d.month}")
         
-        # Crear diccionario con los valores de PRECIO
+        # Crear diccionario simple con los valores de PRECIO
         sicep_dict = dict(zip(sicep_df['AUX'], sicep_df['PRECIO']))
         
-        logger.info(f"PRECIO SICEP procesado correctamente: {len(sicep_dict)} períodos")
-        print(f"PRECIO SICEP procesado correctamente: {len(sicep_dict)} períodos")
+        # Crear diccionario para valores FNCER si existe la columna
+        fncer_dict = {}
+        if 'PRECIO FNCER' in sicep_df.columns:
+            fncer_dict = dict(zip(sicep_df['AUX'], sicep_df['PRECIO FNCER']))
+            logger.info(f"PRECIO SICEP y FNCER procesados correctamente: {len(sicep_dict)} períodos")
+            print(f"PRECIO SICEP y FNCER procesados correctamente: {len(sicep_dict)} períodos")
+        else:
+            logger.info(f"PRECIO SICEP procesado correctamente: {len(sicep_dict)} períodos (no se encontró PRECIO FNCER)")
+            print(f"PRECIO SICEP procesado correctamente: {len(sicep_dict)} períodos (no se encontró PRECIO FNCER)")
         
-        return sicep_dict
+        return {'SICEP': sicep_dict, 'FNCER': fncer_dict}
     
     except Exception as e:
         logger.exception(f"Error al procesar PROYECCIÓN PRECIO SICEP: {e}")
@@ -144,15 +151,19 @@ def procesar_precio_bolsa(datos_iniciales=DATOS_INICIALES):
         logger.exception(f"Error al procesar PRECIO BOLSA: {e}")
         return None
     
-def evaluar_oferta(precio_indexado, precio_sicep, precio_bolsa, constante_sicep=None):
+def evaluar_oferta(precio_indexado, precio_sicep, precio_bolsa, constante_sicep=None, precio_fncer=None, es_oferta_fncer=False):
     """
     Evalúa si una oferta cumple con los criterios establecidos.
+    Para ofertas normales, se compara con min(constante_sicep * PRECIO_SICEP, PRECIO_BOLSA).
+    Para ofertas FNCER, se compara con PRECIO_FNCER.
     
     Args:
         precio_indexado (float): Precio indexado de la oferta
         precio_sicep (float): Precio SICEP
         precio_bolsa (float): Precio BOLSA
         constante_sicep (float, opcional): Constante para multiplicar el precio SICEP
+        precio_fncer (float, opcional): Precio FNCER para evaluar ofertas FNCER
+        es_oferta_fncer (bool): Indica si la oferta es de tipo FNCER
         
     Returns:
         int: 1 si cumple, 0 si no cumple
@@ -160,27 +171,72 @@ def evaluar_oferta(precio_indexado, precio_sicep, precio_bolsa, constante_sicep=
     # Inicializar evaluación como 0 (incumple)
     evaluacion = 0
     
-    # Verificar que todos los valores necesarios estén presentes
-    if (precio_indexado is not None and 
-        precio_sicep is not None and 
-        precio_bolsa is not None):
-        
-        # Si no se proporcionó constante, solicitarla al usuario
-        if constante_sicep is None:
-            try:
-                constante_sicep = float(input("Ingrese la constante para el cálculo del precio SICEP: "))
-            except ValueError:
-                logger.warning("Valor inválido para constante SICEP, usando 1.0 como valor predeterminado")
-                constante_sicep = 1.0
-        
-        # Aplicar la constante al precio SICEP
-        precio_sicep_ajustado = precio_sicep * constante_sicep
-        
-        # Evaluación: PRECIO_INDEXADO <= min(constante_sicep * PRECIO_SICEP, PRECIO_BOLSA)
-        limite = min(precio_sicep_ajustado, precio_bolsa)
-        
-        if precio_indexado <= limite:
-            evaluacion = 1  # Cumple
+    # Verificar que precio indexado sea válido
+    if precio_indexado is None or pd.isna(precio_indexado):
+        # Solo registrar si el precio indexado no es válido
+        logger.debug(f"Precio indexado no válido: {precio_indexado}")
+        return evaluacion  # Si no hay precio indexado, no cumple
+    
+    # Evaluación para ofertas FNCER
+    if es_oferta_fncer:
+        if precio_fncer is not None and precio_fncer > 0:
+            # Para ofertas FNCER, se compara directamente con el precio FNCER
+            if precio_indexado <= precio_fncer:
+                evaluacion = 1  # Cumple criterio FNCER
+            # Registrar solo si es importante para depuración o si cambia el resultado
+            if logger.getEffectiveLevel() <= logging.DEBUG:
+                logger.debug(f"Evaluación FNCER: Precio indexado {precio_indexado} <= Precio FNCER {precio_fncer}: {evaluacion}")
+        else:
+            logger.warning(f"Oferta marcada como FNCER pero precio FNCER no disponible o es 0. Se usará evaluación normal.")
+            # Caer en evaluación normal si no hay precio FNCER disponible
+            if precio_sicep is not None and precio_sicep > 0 and precio_bolsa is not None and precio_bolsa > 0:
+                if constante_sicep is None:
+                    constante_sicep = 1.0
+                
+                precio_sicep_ajustado = precio_sicep * constante_sicep
+                limite = min(precio_sicep_ajustado, precio_bolsa)
+                
+                if precio_indexado <= limite:
+                    evaluacion = 1
+                
+                if logger.getEffectiveLevel() <= logging.DEBUG:
+                    logger.debug(f"Evaluación FNCER fallback: Precio indexado {precio_indexado} <= min({precio_sicep_ajustado}, {precio_bolsa}): {evaluacion}")
+    else:
+        # Evaluación para ofertas normales (no FNCER)
+        if precio_sicep is not None and precio_bolsa is not None:
+            # Solo advertir si ambos son cero
+            if precio_sicep == 0 and precio_bolsa == 0:
+                logger.warning(f"Ambos precios SICEP y BOLSA son 0")
+                return evaluacion
+            
+            # Si alguno de los dos es mayor que cero, continuar con la evaluación
+            if precio_sicep > 0 or precio_bolsa > 0:
+                # Si no se proporcionó constante, usar valor predeterminado
+                if constante_sicep is None:
+                    constante_sicep = 1.0
+                
+                # Aplicar la constante al precio SICEP
+                precio_sicep_ajustado = precio_sicep * constante_sicep
+                
+                # Usar precio que no sea cero si uno es cero
+                if precio_sicep_ajustado == 0 and precio_bolsa > 0:
+                    limite = precio_bolsa
+                elif precio_bolsa == 0 and precio_sicep_ajustado > 0:
+                    limite = precio_sicep_ajustado
+                else:
+                    # Evaluación: PRECIO_INDEXADO <= min(constante_sicep * PRECIO_SICEP, PRECIO_BOLSA)
+                    limite = min(precio_sicep_ajustado, precio_bolsa)
+                
+                if precio_indexado <= limite:
+                    evaluacion = 1  # Cumple
+                
+                # Solo registrar en nivel de depuración
+                if logger.getEffectiveLevel() <= logging.DEBUG:
+                    logger.debug(f"Evaluación normal: Precio indexado {precio_indexado} <= límite {limite}: {evaluacion}")
+            else:
+                logger.warning(f"Faltan datos para evaluación normal: Precio SICEP: {precio_sicep}, Precio BOLSA: {precio_bolsa}")
+        else:
+            logger.warning(f"Faltan datos para evaluación normal: Precio SICEP: {precio_sicep}, Precio BOLSA: {precio_bolsa}")
     
     return evaluacion
 
@@ -189,6 +245,7 @@ def procesar_ofertas(carpeta_ofertas=OFERTAS_DIR, datos_iniciales=DATOS_INICIALE
     """
     Lee todos los archivos de ofertas en la carpeta especificada,
     construye la TABLA MAESTRA OFERTAS y la hoja CANTIDADES Y PRECIOS.
+    Ahora incluye procesamiento de ofertas FNCER.
     
     Args:
         carpeta_ofertas (Path): Carpeta donde se encuentran las ofertas
@@ -303,10 +360,24 @@ def procesar_ofertas(carpeta_ofertas=OFERTAS_DIR, datos_iniciales=DATOS_INICIALE
                 "DENOMINADOR": indexador_df.loc[indexador_df["CONCEPTO"] == "DENOMINADOR", "VALOR"].values[0],
                 "FECHA BASE": pd.to_datetime(indexador_df.loc[indexador_df["CONCEPTO"] == "FECHA BASE", "VALOR"].values[0]).date()
             }
+            
+            # Verificar si existe el campo FNCER en el indexador y obtener su valor
+            fncer_rows = indexador_df[indexador_df["CONCEPTO"] == "FNCER"]
+            if not fncer_rows.empty:
+                es_fncer = fncer_rows["VALOR"].values[0].upper() == "SI"
+                indexador_data["FNCER"] = "SI" if es_fncer else "NO"
+                logger.info(f"Oferta {codigo_oferta} FNCER: {'SI' if es_fncer else 'NO'}")
+            else:
+                indexador_data["FNCER"] = "NO"
+                logger.info(f"Oferta {codigo_oferta} no tiene campo FNCER, asignando NO por defecto")
+            
             tabla_maestra.append(indexador_data)
         except Exception as e:
             logger.error(f"Error al procesar metadatos de la oferta {codigo_oferta}: {e}")
             continue
+        
+        # Determinar si esta oferta es de tipo FNCER
+        es_fncer = indexador_data.get("FNCER", "NO") == "SI"
         
         # Procesar cada fila de cantidad_df y cada hora
         for _, row in cantidad_df.iterrows():
@@ -356,7 +427,15 @@ def procesar_ofertas(carpeta_ofertas=OFERTAS_DIR, datos_iniciales=DATOS_INICIALE
                             precio_indexado = None
                         
                         # Obtener PRECIO SICEP para ese año-mes
-                        precio_sicep_val = sicep_dict.get(fecha_aux, 0)
+                        precio_sicep_val = sicep_dict.get('SICEP', {}).get(fecha_aux, 0)
+                        
+                        # Si es oferta FNCER, obtener precio FNCER
+                        precio_fncer_val = None
+                        if es_fncer:
+                            precio_fncer_val = sicep_dict.get('FNCER', {}).get(fecha_aux, 0)
+                            # Si no hay precio FNCER, usar un valor predeterminado o registrar mensaje
+                            if precio_fncer_val == 0:
+                                logger.warning(f"No se encontró precio FNCER para {fecha_aux} en oferta {codigo_oferta}")
                         
                         # Obtener PRECIO BOLSA para ese año-mes
                         precio_bolsa_val = bolsa_dict.get(fecha_aux, 0)
@@ -366,7 +445,9 @@ def procesar_ofertas(carpeta_ofertas=OFERTAS_DIR, datos_iniciales=DATOS_INICIALE
                             precio_indexado,
                             precio_sicep_val,
                             precio_bolsa_val,
-                            constante_sicep
+                            constante_sicep,
+                            precio_fncer=precio_fncer_val,
+                            es_oferta_fncer=es_fncer
                         )
                         
                         # Construimos el diccionario en el orden que necesitamos
@@ -383,7 +464,8 @@ def procesar_ofertas(carpeta_ofertas=OFERTAS_DIR, datos_iniciales=DATOS_INICIALE
                             "NUMERADOR #": numerador_valor,
                             "DENOMINADOR #": denominador_valor,
                             "PRECIO INDEXADO": precio_indexado,
-                            "PRECIO SICEP": precio_sicep_val,
+                            "FNCER": indexador_data.get("FNCER", "NO"),
+                            "PRECIO SICEP": precio_sicep_val if not es_fncer else precio_fncer_val,
                             "PRECIO BOLSA": precio_bolsa_val,
                             "EVALUACIÓN": evaluacion
                         }
