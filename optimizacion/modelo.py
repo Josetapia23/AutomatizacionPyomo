@@ -115,22 +115,38 @@ def construir_modelo(demanda_df, ofertas_df):
     # Definir constante grande para penalizaciones
     model.M = pyo.Param(initialize=1e10, doc='Constante para restricciones big-M')
     
-    # Asignar prioridades a las ofertas basadas en orden alfabético
+    # Asignar prioridades a las ofertas basadas en precio promedio
     prioridad_dict = {}
-    print("Asignando prioridades a ofertas de manera dinámica:")
+    print("Asignando prioridades a ofertas basadas en precio promedio:")
 
-    # Ordenar ofertas alfabéticamente
-    ofertas_ordenadas = sorted(ofertas)
+    # Primero, calcular precio promedio para cada oferta
+    precios_promedio = {}
+    for oferta in ofertas:
+        # Filtrar registros de esta oferta que cumplan con el filtro de evaluación = 1
+        ofertas_validas = ofertas_df[(ofertas_df['CÓDIGO OFERTA'] == oferta) & (ofertas_df['EVALUACIÓN'] == 1)]
+        
+        if not ofertas_validas.empty:
+            # Calcular precio promedio para esta oferta (usando PRECIO INDEXADO)
+            precio_promedio = ofertas_validas['PRECIO INDEXADO'].mean()
+            precios_promedio[oferta] = precio_promedio
+            print(f"  Oferta: {oferta} - Precio promedio: {precio_promedio:.4f}")
+        else:
+            # Si no hay ofertas válidas, asignar un precio muy alto
+            precios_promedio[oferta] = float('inf')
+            print(f"  Oferta: {oferta} - Sin ofertas válidas con EVALUACIÓN = 1")
 
-    # Asignar prioridad según posición alfabética (1 es la más alta)
-    for i, oferta in enumerate(ofertas_ordenadas, 1):
+    # Ordenar ofertas por precio promedio (de menor a mayor)
+    ofertas_ordenadas_por_precio = [oferta for oferta, _ in sorted(precios_promedio.items(), key=lambda x: x[1])]
+
+    # Asignar prioridad según precio promedio (1 es la más alta - precio más bajo)
+    for i, oferta in enumerate(ofertas_ordenadas_por_precio, 1):
         prioridad_dict[oferta] = i
-        print(f"  Oferta: {oferta} - Prioridad: {i}")
+        print(f"  Oferta: {oferta} - Prioridad: {i} - Precio promedio: {precios_promedio[oferta]:.4f}")
 
     # Mostrar resumen de prioridades
-    print("\nPrioridades finales asignadas a ofertas:")
+    print("\nPrioridades finales asignadas a ofertas (basadas en precio):")
     for oferta, prioridad in sorted(prioridad_dict.items(), key=lambda x: x[1]):
-        print(f"  {oferta}: Prioridad {prioridad}")
+        print(f"  {oferta}: Prioridad {prioridad} - Precio: {precios_promedio[oferta]:.4f}")
     
     # Añadir prioridades como parámetro del modelo
     model.prioridad = pyo.Param(
