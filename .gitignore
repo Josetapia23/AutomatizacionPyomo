@@ -1,0 +1,72 @@
+# Entornos virtuales
+venv/
+env/
+ENV/
+.venv/
+.env/
+.ENV/
+
+# Archivos de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.cpython-*.pyc
+
+# Archivos de distribución
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Archivos de log
+*.log
+logs/
+.energia_pyomo.log
+
+# Directorios y archivos específicos de IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.project
+.pydevproject
+
+# Archivos de configuración local
+.env
+.envrc
+
+# Archivos de dependencias
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Archivos de caché
+.cache/
+.pytest_cache/
+
+# Archivos específicos del sistema
+.DS_Store
+Thumbs.db
+
+# Archivos específicos de tu proyecto
+site-packages/
+bin/
+*-info/
+__init__.cpython-310.pyc
+evaluacion.cpython-310.pyc
+indexadores.cpython-310.pyc
+ofertas.cpython-310.pyc
+utils.cpython-310.pyc
+config.cpython-310.pyc
