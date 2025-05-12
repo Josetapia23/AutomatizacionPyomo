@@ -290,12 +290,29 @@ def extraer_resultados(model, ofertas_df=None):
         if any((i, a, h) in model.OFH for a in model.A for h in model.H):
             ofertas_validas.append(i)
     
-    # Ordenar alfabéticamente para consistencia
-    ofertas_validas.sort()
-    print(f"Ofertas válidas para iteraciones: {ofertas_validas}")
+    # Calcular precio promedio para cada oferta para poder ordenarlas
+    precios_promedio = {}
+    for oferta in ofertas_validas:
+        precio_total = 0
+        num_combinaciones = 0
+        for (i, a, h) in model.OFH:
+            if i == oferta:
+                precio_total += pyo.value(model.PO[i, a, h])
+                num_combinaciones += 1
+        if num_combinaciones > 0:
+            precios_promedio[oferta] = precio_total / num_combinaciones
+        else:
+            precios_promedio[oferta] = float('inf')  # Si no hay combinaciones, asignar precio infinito
+    
+    # Ordenar ofertas por precio (de menor a mayor)
+    ofertas_ordenadas = sorted(ofertas_validas, key=lambda x: precios_promedio.get(x, float('inf')))
+    
+    print("Ofertas ordenadas por precio promedio:")
+    for oferta in ofertas_ordenadas:
+        print(f"  {oferta}: {precios_promedio.get(oferta, float('inf')):.2f} $/KWh")
     
     # Verificar que hay ofertas válidas
-    if not ofertas_validas:
+    if not ofertas_ordenadas:
         print("ADVERTENCIA: No hay ofertas válidas. No se pueden generar resultados.")
         return {}
     
@@ -347,8 +364,8 @@ def extraer_resultados(model, ofertas_df=None):
             # Contador para el total asignado en esta iteración
             asignacion_total_iteracion = 0
             
-            # Procesar cada oferta en esta iteración
-            for oferta in ofertas_validas:
+            # Procesar cada oferta en esta iteración, ORDENADAS POR PRECIO
+            for oferta in ofertas_ordenadas:  # Importante: usamos ofertas_ordenadas en lugar de ofertas_validas
                 # Determinar la capacidad disponible para esta oferta en esta iteración
                 capacidad_disponible = {}
                 
@@ -374,7 +391,7 @@ def extraer_resultados(model, ofertas_df=None):
                 if not capacidad_disponible:
                     continue
                 
-                print(f"Procesando oferta {oferta} (IT{iteracion_actual})")
+                print(f"Procesando oferta {oferta} (IT{iteracion_actual}) - Precio promedio: {precios_promedio.get(oferta, float('inf')):.2f} $/KWh")
                 
                 # Listas para almacenar las filas de los DataFrames de resultados
                 oferta_comprar = []
@@ -465,9 +482,8 @@ def extraer_resultados(model, ofertas_df=None):
         
         print("Demanda faltante procesada correctamente")
         
-        # GENERAR RESUMEN MENSUAL CON PRECIOS INDEXADOS Y SIN INDEXAR
-        resumen_indexado_rows = []
-        resumen_sin_indexar_rows = []
+        # GENERAR RESUMEN EJECUTIVO CON TODA LA INFORMACIÓN REQUERIDA
+        resumen_ejecutivo_rows = []
         
         # Agrupar fechas por mes cronológicamente
         fechas_por_mes = {}
@@ -489,15 +505,30 @@ def extraer_resultados(model, ofertas_df=None):
         if not has_ofertas_df:
             logger.warning("No se proporcionó DataFrame de ofertas. Solo se usarán precios indexados en el resumen.")
         
+        # Preparar un diccionario para almacenar la demanda no asignada por mes
+        demanda_no_asignada_por_mes = {}
+        demanda_faltante_df = pd.DataFrame(demanda_faltante)
+        
+        for _, row in demanda_faltante_df.iterrows():
+            fecha = row["FECHA"]
+            key = (fecha.year, fecha.month)
+            
+            if key not in demanda_no_asignada_por_mes:
+                demanda_no_asignada_por_mes[key] = 0
+                
+            # Sumar la demanda faltante para todas las horas de este día
+            for hora in range(1, 25):
+                if hora in row and not pd.isna(row[hora]):
+                    demanda_no_asignada_por_mes[key] += row[hora]
+        
         # Para cada mes, calcular totales y precios promedio para cada oferta
         for key in sorted(fechas_por_mes.keys()):
             datos_mes = fechas_por_mes[key]
             display_key = datos_mes["display"]
             fechas = datos_mes["fechas"]
             
-            # Crear filas para ambos tipos de resumen
-            row_indexado = {"FECHA": display_key}
-            row_sin_indexar = {"FECHA": display_key}
+            # Crear fila para el resumen ejecutivo
+            row_resumen = {"FECHA": display_key}
             
             # Calcular totales y precios para cada oferta
             for oferta in ofertas_procesadas:
@@ -552,21 +583,20 @@ def extraer_resultados(model, ofertas_df=None):
                 precio_promedio_indexado = total_costo_indexado / total_energia if total_energia > 0 else 0
                 precio_promedio_sin_indexar = total_costo_sin_indexar / total_energia if total_energia > 0 else 0
                 
-                # Añadir a las filas de resumen
-                row_indexado[f"{oferta} CANTIDAD"] = total_energia
-                row_indexado[f"{oferta} PRECIO PROMEDIO"] = precio_promedio_indexado
-                
-                row_sin_indexar[f"{oferta} CANTIDAD"] = total_energia
-                row_sin_indexar[f"{oferta} PRECIO PROMEDIO"] = precio_promedio_sin_indexar
+                # Añadir a la fila de resumen ejecutivo con las nuevas etiquetas
+                row_resumen[f"{oferta} CANTIDAD (KWh)"] = total_energia
+                row_resumen[f"{oferta} PRECIO ($/KWh)"] = precio_promedio_sin_indexar
+                row_resumen[f"{oferta} PRECIO INDEXADO ($/KWh)"] = precio_promedio_indexado
             
-            resumen_indexado_rows.append(row_indexado)
-            resumen_sin_indexar_rows.append(row_sin_indexar)
+            # Agregar la demanda no asignada para este mes
+            row_resumen["DEMANDA NO ASIGNADA (KWh)"] = demanda_no_asignada_por_mes.get(key, 0)
+            
+            resumen_ejecutivo_rows.append(row_resumen)
         
-        # Guardar DataFrames de resumen
-        resultados["RESUMEN"] = pd.DataFrame(resumen_indexado_rows)
-        resultados["RESUMEN SIN INDEXAR"] = pd.DataFrame(resumen_sin_indexar_rows)
+        # Guardar DataFrame de resumen ejecutivo
+        resultados["RESUMEN EJECUTIVO"] = pd.DataFrame(resumen_ejecutivo_rows)
         
-        print("Resumen procesado correctamente")
+        print("Resumen ejecutivo procesado correctamente")
         
         # CALCULAR ESTADÍSTICAS FINALES
         

@@ -404,7 +404,7 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
         modo = 'a' if archivo_existe else 'w'
         
         with pd.ExcelWriter(archivo_salida, engine='openpyxl', mode=modo, if_sheet_exists='replace') as writer:
-            # Identificar todas las ofertas únicas
+            # Identificar todas las ofertas únicas en los resultados
             ofertas_unicas = set()
             for key in resultados_dict.keys():
                 if "_COMPRAR" in key:
@@ -412,163 +412,265 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                     nombre_oferta = key.split("DEMANDA ASIGNADA ")[1].split(" IT")[0]
                     ofertas_unicas.add(nombre_oferta)
             
-            # Para cada oferta, consolidar todas las iteraciones
+            # Agregar las ofertas rechazadas que no aparecen en los resultados
+            for oferta in ofertas_rechazadas_por_precio.keys():
+                if oferta not in ofertas_unicas:
+                    print(f"Añadiendo oferta completamente rechazada: {oferta}")
+                    ofertas_unicas.add(oferta)
+            
+            # Para cada oferta, consolidar todas las iteraciones o crear hojas nuevas para rechazadas
             for oferta in ofertas_unicas:
-                # Consolidar datos de compras
-                df_comprar_consolidado = pd.DataFrame()
-                
-                # Para la energía no comprada, usar solo la última iteración
-                df_no_comprado_consolidado = None
-                ultima_iteracion = 0
-                
-                # Buscar todas las iteraciones para esta oferta
+                # Verificar si la oferta tiene asignaciones o solo fue rechazada por precio
+                tiene_asignaciones = False
                 for key in resultados_dict.keys():
                     if f"DEMANDA ASIGNADA {oferta}" in key and "_COMPRAR" in key:
-                        df_iter = resultados_dict[key].copy()
-                        
-                        # Extraer número de iteración
-                        try:
-                            it_num = int(key.split("IT")[1].split("_")[0])
-                            ultima_iteracion = max(ultima_iteracion, it_num)
-                        except:
-                            logger.warning(f"No se pudo extraer número de iteración de {key}")
-                        
-                        # Sumar a la consolidación si ya existen datos, o inicializar
-                        if df_comprar_consolidado.empty:
-                            df_comprar_consolidado = df_iter.copy()
-                        else:
-                            # Solo sumar los valores numéricos (horas), mantener FECHA
-                            for hora in range(1, 25):
-                                if hora in df_iter.columns and hora in df_comprar_consolidado.columns:
-                                    # Suma hora por hora
-                                    for idx, row in df_iter.iterrows():
-                                        fecha = row['FECHA']
-                                        # Buscar la fila correspondiente en el df consolidado
-                                        fecha_rows = df_comprar_consolidado[df_comprar_consolidado['FECHA'] == fecha]
-                                        if not fecha_rows.empty:
-                                            df_comprar_consolidado.loc[df_comprar_consolidado['FECHA'] == fecha, hora] += row[hora]
+                        tiene_asignaciones = True
+                        break
                 
-                # Para la energía no comprada, usar solo la última iteración
-                key_ultima_it_no_comprada = f"DEMANDA ASIGNADA {oferta} IT{ultima_iteracion}_NO_COMPRADA"
-                if key_ultima_it_no_comprada in resultados_dict:
-                    df_no_comprado_consolidado = resultados_dict[key_ultima_it_no_comprada].copy()
-                else:
-                    # Si no se encuentra la última iteración, buscar la mayor disponible
+                if tiene_asignaciones:
+                    # CASO 1: La oferta tiene asignaciones en la optimización
+                    # Consolidar datos de compras
+                    df_comprar_consolidado = pd.DataFrame()
+                    
+                    # Para la energía no comprada, usar solo la última iteración
+                    df_no_comprado_consolidado = None
+                    ultima_iteracion = 0
+                    
+                    # Buscar todas las iteraciones para esta oferta
                     for key in resultados_dict.keys():
-                        if f"DEMANDA ASIGNADA {oferta}" in key and "_NO_COMPRADA" in key:
+                        if f"DEMANDA ASIGNADA {oferta}" in key and "_COMPRAR" in key:
                             df_iter = resultados_dict[key].copy()
-                            if df_no_comprado_consolidado is None:
-                                df_no_comprado_consolidado = df_iter.copy()
-                                # Guardar el nombre para comparaciones posteriores
-                                df_no_comprado_consolidado.name = key
-                            else:
-                                # Comparar iteraciones
-                                try:
-                                    it_actual = int(key.split("IT")[1].split("_")[0])
-                                    it_guardada = int(df_no_comprado_consolidado.name.split("IT")[1].split("_")[0])
-                                    if it_actual > it_guardada:
-                                        df_no_comprado_consolidado = df_iter.copy()
-                                        df_no_comprado_consolidado.name = key
-                                except:
-                                    logger.warning(f"No se pudo comparar iteraciones entre {key} y {df_no_comprado_consolidado.name}")
-                
-                # Si no se encontró ninguna, crear un DataFrame vacío
-                if df_no_comprado_consolidado is None:
-                    logger.warning(f"No se encontró información de energía no comprada para oferta {oferta}")
-                    # Crear DataFrame vacío con la misma estructura que el consolidado de compras
-                    if not df_comprar_consolidado.empty:
-                        df_no_comprado_consolidado = df_comprar_consolidado.copy()
-                        for col in df_no_comprado_consolidado.columns:
-                            if col not in ['FECHA', 'X']:
-                                df_no_comprado_consolidado[col] = 0
-                    else:
-                        # Si no hay datos de compras, no hay datos para no compradas
-                        continue
-                
-                # Ahora, combinar la energía no asignada de la optimización con la rechazada por precio
-                # Crear una copia del DataFrame no comprado para añadir lo rechazado por precio
-                df_no_comprado_total = df_no_comprado_consolidado.copy()
-                
-                # Añadir las ofertas rechazadas por precio
-                if oferta in ofertas_rechazadas_por_precio:
-                    rechazadas = ofertas_rechazadas_por_precio[oferta]
-                    for item in rechazadas:
-                        fecha = item['FECHA']
-                        hora = item['HORA']
-                        cantidad = item['CANTIDAD']
-                        
-                        # Buscar la fila para esta fecha
-                        fecha_rows = df_no_comprado_total[df_no_comprado_total['FECHA'] == fecha]
-                        if len(fecha_rows) > 0:
-                            # Si existe la fila, actualizar el valor para esta hora
-                            df_no_comprado_total.loc[df_no_comprado_total['FECHA'] == fecha, hora] = cantidad
-                        else:
-                            # Si no existe la fila, crear una nueva
-                            nueva_fila = {'FECHA': fecha}
-                            for h in range(1, 25):
-                                nueva_fila[h] = cantidad if h == hora else 0
                             
-                            # Añadir la fila al DataFrame
-                            df_no_comprado_total = pd.concat([df_no_comprado_total, pd.DataFrame([nueva_fila])], ignore_index=True)
-                
-                # Si tenemos datos consolidados, exportar
-                if not df_comprar_consolidado.empty:
-                    # Mantener el orden cronológico original
-                    df_comprar_ordenado = df_comprar_consolidado.copy()
+                            # Extraer número de iteración
+                            try:
+                                it_num = int(key.split("IT")[1].split("_")[0])
+                                ultima_iteracion = max(ultima_iteracion, it_num)
+                            except:
+                                logger.warning(f"No se pudo extraer número de iteración de {key}")
+                            
+                            # Sumar a la consolidación si ya existen datos, o inicializar
+                            if df_comprar_consolidado.empty:
+                                df_comprar_consolidado = df_iter.copy()
+                            else:
+                                # Solo sumar los valores numéricos (horas), mantener FECHA
+                                for hora in range(1, 25):
+                                    if hora in df_iter.columns and hora in df_comprar_consolidado.columns:
+                                        # Suma hora por hora
+                                        for idx, row in df_iter.iterrows():
+                                            fecha = row['FECHA']
+                                            # Buscar la fila correspondiente en el df consolidado
+                                            fecha_rows = df_comprar_consolidado[df_comprar_consolidado['FECHA'] == fecha]
+                                            if not fecha_rows.empty:
+                                                df_comprar_consolidado.loc[df_comprar_consolidado['FECHA'] == fecha, hora] += row[hora]
                     
-                    # Convertir fechas a formato string DD/MM/YYYY
-                    df_comprar_ordenado["X"] = df_comprar_ordenado["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
+                    # Para la energía no comprada, usar solo la última iteración
+                    key_ultima_it_no_comprada = f"DEMANDA ASIGNADA {oferta} IT{ultima_iteracion}_NO_COMPRADA"
+                    if key_ultima_it_no_comprada in resultados_dict:
+                        df_no_comprado_consolidado = resultados_dict[key_ultima_it_no_comprada].copy()
+                    else:
+                        # Si no se encuentra la última iteración, buscar la mayor disponible
+                        for key in resultados_dict.keys():
+                            if f"DEMANDA ASIGNADA {oferta}" in key and "_NO_COMPRADA" in key:
+                                df_iter = resultados_dict[key].copy()
+                                if df_no_comprado_consolidado is None:
+                                    df_no_comprado_consolidado = df_iter.copy()
+                                    # Guardar el nombre para comparaciones posteriores
+                                    df_no_comprado_consolidado.name = key
+                                else:
+                                    # Comparar iteraciones
+                                    try:
+                                        it_actual = int(key.split("IT")[1].split("_")[0])
+                                        it_guardada = int(df_no_comprado_consolidado.name.split("IT")[1].split("_")[0])
+                                        if it_actual > it_guardada:
+                                            df_no_comprado_consolidado = df_iter.copy()
+                                            df_no_comprado_consolidado.name = key
+                                    except:
+                                        logger.warning(f"No se pudo comparar iteraciones entre {key} y {df_no_comprado_consolidado.name}")
                     
-                    # Eliminar columna FECHA (mantener sólo X)
-                    df_comprar_ordenado = df_comprar_ordenado.drop(columns=["FECHA"])
+                    # Si no se encontró ninguna, crear un DataFrame vacío
+                    if df_no_comprado_consolidado is None:
+                        logger.warning(f"No se encontró información de energía no comprada para oferta {oferta}")
+                        # Crear DataFrame vacío con la misma estructura que el consolidado de compras
+                        if not df_comprar_consolidado.empty:
+                            df_no_comprado_consolidado = df_comprar_consolidado.copy()
+                            for col in df_no_comprado_consolidado.columns:
+                                if col not in ['FECHA', 'X']:
+                                    df_no_comprado_consolidado[col] = 0
+                        else:
+                            # Si no hay datos de compras, no hay datos para no compradas
+                            continue
                     
-                    # Añadir un título para el cuadro
-                    titulo_comprar = pd.DataFrame({
-                        "X": ["ENERGÍA A COMPRAR AL VENDEDOR"],
-                        **{i: [None] for i in range(1, 25)}  # Columnas del 1 al 24
-                    })
+                    # Ahora, combinar la energía no asignada de la optimización con la rechazada por precio
+                    # Crear una copia del DataFrame no comprado para añadir lo rechazado por precio
+                    df_no_comprado_total = df_no_comprado_consolidado.copy()
                     
-                    # Concatenar título y datos
-                    df_final_comprar = pd.concat([titulo_comprar, df_comprar_ordenado], ignore_index=True)
+                    # Añadir las ofertas rechazadas por precio
+                    if oferta in ofertas_rechazadas_por_precio:
+                        rechazadas = ofertas_rechazadas_por_precio[oferta]
+                        for item in rechazadas:
+                            fecha = item['FECHA']
+                            hora = item['HORA']
+                            cantidad = item['CANTIDAD']
+                            
+                            # Buscar la fila para esta fecha
+                            fecha_rows = df_no_comprado_total[df_no_comprado_total['FECHA'] == fecha]
+                            if len(fecha_rows) > 0:
+                                # Si existe la fila, actualizar el valor para esta hora
+                                df_no_comprado_total.loc[df_no_comprado_total['FECHA'] == fecha, hora] = cantidad
+                            else:
+                                # Si no existe la fila, crear una nueva
+                                nueva_fila = {'FECHA': fecha}
+                                for h in range(1, 25):
+                                    nueva_fila[h] = cantidad if h == hora else 0
+                                
+                                # Añadir la fila al DataFrame
+                                df_no_comprado_total = pd.concat([df_no_comprado_total, pd.DataFrame([nueva_fila])], ignore_index=True)
                     
-                    # Asegurar que el nombre de la hoja no exceda los 31 caracteres
-                    sheet_name = f"DA-{oferta}"
-                    if len(sheet_name) > 31:
-                        sheet_name = sheet_name[:31]
-                    
-                    # Exportar sin el índice
-                    df_final_comprar.to_excel(writer, sheet_name=sheet_name, index=False)
-                    logger.info(f"Hoja exportada: {sheet_name}")
-                
-                # Exportar la energía no comprada (total)
-                if df_no_comprado_total is not None and not df_no_comprado_total.empty:
-                    # Mantener el orden cronológico original
-                    df_no_comprado_ordenado = df_no_comprado_total.copy()
-                    
-                    # Convertir fechas a formato string DD/MM/YYYY
-                    if "FECHA" in df_no_comprado_ordenado.columns:
-                        df_no_comprado_ordenado["X"] = df_no_comprado_ordenado["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
+                    # Si tenemos datos consolidados, exportar
+                    if not df_comprar_consolidado.empty:
+                        # Mantener el orden cronológico original
+                        df_comprar_ordenado = df_comprar_consolidado.copy()
+                        
+                        # Convertir fechas a formato string DD/MM/YYYY
+                        df_comprar_ordenado["X"] = df_comprar_ordenado["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
                         
                         # Eliminar columna FECHA (mantener sólo X)
-                        df_no_comprado_ordenado = df_no_comprado_ordenado.drop(columns=["FECHA"])
+                        df_comprar_ordenado = df_comprar_ordenado.drop(columns=["FECHA"])
+                        
+                        # Añadir un título para el cuadro
+                        titulo_comprar = pd.DataFrame({
+                            "X": ["ENERGÍA A COMPRAR AL VENDEDOR"],
+                            **{i: [None] for i in range(1, 25)}  # Columnas del 1 al 24
+                        })
+                        
+                        # Concatenar título y datos
+                        df_final_comprar = pd.concat([titulo_comprar, df_comprar_ordenado], ignore_index=True)
+                        
+                        # Asegurar que el nombre de la hoja no exceda los 31 caracteres
+                        sheet_name = f"DA-{oferta}"
+                        if len(sheet_name) > 31:
+                            sheet_name = sheet_name[:31]
+                        
+                        # Exportar sin el índice
+                        df_final_comprar.to_excel(writer, sheet_name=sheet_name, index=False)
+                        logger.info(f"Hoja exportada: {sheet_name}")
                     
-                    # Añadir un título para el cuadro
-                    titulo_no_comprada = pd.DataFrame({
-                        "X": ["ENERGÍA NO COMPRADA AL VENDEDOR"],
-                        **{i: [None] for i in range(1, 25)}  # Columnas del 1 al 24
-                    })
-                    
-                    # Concatenar título y datos
-                    df_final_no_comprada = pd.concat([titulo_no_comprada, df_no_comprado_ordenado], ignore_index=True)
-                    
-                    # Nombre de la hoja
-                    sheet_name_ena = f"ENA-{oferta}"
-                    if len(sheet_name_ena) > 31:
-                        sheet_name_ena = sheet_name_ena[:31]
-                    
-                    # Exportar sin el índice
-                    df_final_no_comprada.to_excel(writer, sheet_name=sheet_name_ena, index=False)
-                    logger.info(f"Hoja exportada: {sheet_name_ena}")
+                    # Exportar la energía no comprada (total)
+                    if df_no_comprado_total is not None and not df_no_comprado_total.empty:
+                        # Mantener el orden cronológico original
+                        df_no_comprado_ordenado = df_no_comprado_total.copy()
+                        
+                        # Convertir fechas a formato string DD/MM/YYYY
+                        if "FECHA" in df_no_comprado_ordenado.columns:
+                            df_no_comprado_ordenado["X"] = df_no_comprado_ordenado["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
+                            
+                            # Eliminar columna FECHA (mantener sólo X)
+                            df_no_comprado_ordenado = df_no_comprado_ordenado.drop(columns=["FECHA"])
+                        
+                        # Añadir un título para el cuadro
+                        titulo_no_comprada = pd.DataFrame({
+                            "X": ["ENERGÍA NO COMPRADA AL VENDEDOR"],
+                            **{i: [None] for i in range(1, 25)}  # Columnas del 1 al 24
+                        })
+                        
+                        # Concatenar título y datos
+                        df_final_no_comprada = pd.concat([titulo_no_comprada, df_no_comprado_ordenado], ignore_index=True)
+                        
+                        # Nombre de la hoja
+                        sheet_name_ena = f"ENA-{oferta}"
+                        if len(sheet_name_ena) > 31:
+                            sheet_name_ena = sheet_name_ena[:31]
+                        
+                        # Exportar sin el índice
+                        df_final_no_comprada.to_excel(writer, sheet_name=sheet_name_ena, index=False)
+                        logger.info(f"Hoja exportada: {sheet_name_ena}")
+                else:
+                    # CASO 2: La oferta fue completamente rechazada por precio
+                    # Verificar si tiene datos de rechazo
+                    if oferta in ofertas_rechazadas_por_precio:
+                        rechazadas = ofertas_rechazadas_por_precio[oferta]
+                        
+                        # 1. Crear DataFrame para DA (todos ceros)
+                        fechas_unicas = sorted(list(set(item['FECHA'] for item in rechazadas)))
+                        
+                        # Crear DataFrame vacío para DA (todo ceros)
+                        da_rows = []
+                        for fecha in fechas_unicas:
+                            row = {"FECHA": fecha}
+                            for hora in range(1, 25):
+                                row[hora] = 0  # Todos los valores son cero
+                            da_rows.append(row)
+                        
+                        if da_rows:
+                            da_df = pd.DataFrame(da_rows)
+                            
+                            # Convertir fechas a formato string DD/MM/YYYY
+                            da_df["X"] = da_df["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
+                            
+                            # Eliminar columna FECHA (mantener sólo X)
+                            da_df = da_df.drop(columns=["FECHA"])
+                            
+                            # Añadir un título para el cuadro
+                            titulo_da = pd.DataFrame({
+                                "X": ["ENERGÍA A COMPRAR AL VENDEDOR"],
+                                **{i: [None] for i in range(1, 25)}  # Columnas del 1 al 24
+                            })
+                            
+                            # Concatenar título y datos
+                            df_final_da = pd.concat([titulo_da, da_df], ignore_index=True)
+                            
+                            # Asegurar que el nombre de la hoja no exceda los 31 caracteres
+                            sheet_name = f"DA-{oferta}"
+                            if len(sheet_name) > 31:
+                                sheet_name = sheet_name[:31]
+                            
+                            # Exportar sin el índice
+                            df_final_da.to_excel(writer, sheet_name=sheet_name, index=False)
+                            logger.info(f"Hoja DA exportada para oferta completamente rechazada: {oferta}")
+                            print(f"Hoja DA exportada para oferta completamente rechazada: {oferta}")
+                        
+                        # 2. Crear DataFrame para ENA (valores originales)
+                        ena_rows = []
+                        for fecha in fechas_unicas:
+                            row = {"FECHA": fecha}
+                            # Inicializar todas las horas con cero
+                            for hora in range(1, 25):
+                                row[hora] = 0
+                            
+                            # Luego, actualizar con los valores reales de las ofertas rechazadas
+                            for item in rechazadas:
+                                if item['FECHA'] == fecha:
+                                    row[item['HORA']] = item['CANTIDAD']
+                            
+                            ena_rows.append(row)
+                        
+                        if ena_rows:
+                            ena_df = pd.DataFrame(ena_rows)
+                            
+                            # Convertir fechas a formato string DD/MM/YYYY
+                            ena_df["X"] = ena_df["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
+                            
+                            # Eliminar columna FECHA (mantener sólo X)
+                            ena_df = ena_df.drop(columns=["FECHA"])
+                            
+                            # Añadir un título para el cuadro
+                            titulo_ena = pd.DataFrame({
+                                "X": ["ENERGÍA NO COMPRADA AL VENDEDOR"],
+                                **{i: [None] for i in range(1, 25)}  # Columnas del 1 al 24
+                            })
+                            
+                            # Concatenar título y datos
+                            df_final_ena = pd.concat([titulo_ena, ena_df], ignore_index=True)
+                            
+                            # Nombre de la hoja
+                            sheet_name_ena = f"ENA-{oferta}"
+                            if len(sheet_name_ena) > 31:
+                                sheet_name_ena = sheet_name_ena[:31]
+                            
+                            # Exportar sin el índice
+                            df_final_ena.to_excel(writer, sheet_name=sheet_name_ena, index=False)
+                            logger.info(f"Hoja ENA exportada para oferta completamente rechazada: {oferta}")
+                            print(f"Hoja ENA exportada para oferta completamente rechazada: {oferta}")
             
             # 2. Exportar hoja de DEMANDA FALTANTE
             if "DEMANDA_FALTANTE" in resultados_dict:
@@ -591,32 +693,9 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                 df_final.to_excel(writer, sheet_name="DEMANDA FALTANTE", index=False)
                 logger.info(f"Hoja exportada: DEMANDA FALTANTE")
             
-            # 3. Exportar hoja de RESUMEN
-            if "RESUMEN" in resultados_dict:
-                df_export = resultados_dict["RESUMEN"].copy()
-                
-                # El formato de fecha ya está establecido como MM/YYYY en extraer_resultados
-                # No reordenar, preservar el orden original
-                
-                # Crear títulos dinámicamente según las columnas disponibles
-                titulos = {}
-                titulos["FECHA"] = ""
-                for col in df_export.columns:
-                    if col != "FECHA":
-                        titulos[col] = "CANTIDAD"
-                
-                # Añadir la fila de títulos
-                titulo_df = pd.DataFrame([titulos])
-                
-                # Concatenar título y datos
-                df_final = pd.concat([titulo_df, df_export], ignore_index=True)
-                
-                df_final.to_excel(writer, sheet_name="RESUMEN", index=False)
-                logger.info(f"Hoja exportada: RESUMEN")
-            
-            # 4. Exportar hoja de RESUMEN SIN INDEXAR
-            if "RESUMEN SIN INDEXAR" in resultados_dict:
-                df_export = resultados_dict["RESUMEN SIN INDEXAR"].copy()
+            # Exportar hoja de RESUMEN EJECUTIVO (reemplaza a las hojas RESUMEN y RESUMEN SIN INDEXAR)
+            if "RESUMEN EJECUTIVO" in resultados_dict:
+                df_export = resultados_dict["RESUMEN EJECUTIVO"].copy()
                 
                 # El formato de fecha ya está establecido como MM/YYYY
                 # No reordenar, preservar el orden original
@@ -626,7 +705,8 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                 titulos["FECHA"] = ""
                 for col in df_export.columns:
                     if col != "FECHA":
-                        titulos[col] = "CANTIDAD"
+                        # Las columnas ya incluyen las unidades en sus nombres
+                        titulos[col] = ""
                 
                 # Añadir la fila de títulos
                 titulo_df = pd.DataFrame([titulos])
@@ -634,8 +714,8 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                 # Concatenar título y datos
                 df_final = pd.concat([titulo_df, df_export], ignore_index=True)
                 
-                df_final.to_excel(writer, sheet_name="RESUMEN SIN INDEXAR", index=False)
-                logger.info(f"Hoja exportada: RESUMEN SIN INDEXAR")
+                df_final.to_excel(writer, sheet_name="RESUMEN EJECUTIVO", index=False)
+                logger.info(f"Hoja exportada: RESUMEN EJECUTIVO")
             
             # NUEVO: Exportar un resumen de ofertas rechazadas por precio
             if ofertas_rechazadas_por_precio:
@@ -651,8 +731,8 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                     resumen_datos.append({
                         'OFERTA': oferta,
                         'REGISTROS RECHAZADOS': len(rechazadas),
-                        'CANTIDAD TOTAL RECHAZADA': total_rechazado,
-                        'PRECIO PROMEDIO': precio_promedio
+                        'CANTIDAD TOTAL RECHAZADA (KWh)': total_rechazado,
+                        'PRECIO PROMEDIO ($/KWh)': precio_promedio
                     })
                 
                 # Crear DataFrame con el resumen
@@ -660,7 +740,7 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                     df_resumen_rechazos = pd.DataFrame(resumen_datos)
                     
                     # Ordenar por cantidad total rechazada (descendente)
-                    df_resumen_rechazos = df_resumen_rechazos.sort_values(by='CANTIDAD TOTAL RECHAZADA', ascending=False)
+                    df_resumen_rechazos = df_resumen_rechazos.sort_values(by='CANTIDAD TOTAL RECHAZADA (KWh)', ascending=False)
                     
                     # Exportar resumen
                     df_resumen_rechazos.to_excel(writer, sheet_name="RESUMEN RECHAZOS PRECIO", index=False)
@@ -750,16 +830,16 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                             df_final.to_excel(writer, sheet_name="DEMANDA FALTANTE", index=False)
                             logger.info("Hoja DEMANDA FALTANTE exportada a análisis")
                     
-                    # Para hojas de resumen
-                    elif "RESUMEN" in nombre_hoja:
+                    # Para la hoja de resumen ejecutivo
+                    elif nombre_hoja == "RESUMEN EJECUTIVO":
                         df_export = df.copy()
                         
-                        # Crear títulos para resumen
+                        # Crear títulos dinámicamente según las columnas disponibles
                         titulos = {}
                         titulos["FECHA"] = ""
                         for col in df_export.columns:
                             if col != "FECHA":
-                                titulos[col] = "CANTIDAD"
+                                titulos[col] = ""
                         
                         # Añadir la fila de títulos
                         titulo_df = pd.DataFrame([titulos])
