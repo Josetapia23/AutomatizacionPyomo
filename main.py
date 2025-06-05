@@ -31,6 +31,14 @@ from core.evaluacion import (
 from optimizacion.modelo import construir_modelo, extraer_resultados
 from optimizacion.solver import resolver_modelo
 
+# Importar visualizaciones (con manejo de errores en caso de que no exista aún)
+try:
+    from core.visualizaciones import generar_reporte_completo
+    VISUALIZACIONES_DISPONIBLES = True
+except ImportError:
+    print("ADVERTENCIA: Módulo de visualizaciones no disponible. Las gráficas no se generarán.")
+    VISUALIZACIONES_DISPONIBLES = False
+
 # Configurar logger
 logger = logging.getLogger(__name__)
 
@@ -80,6 +88,72 @@ def leer_demanda(archivo=DATOS_INICIALES, hoja="DEMANDA"):
         logger.error(f"Error al procesar datos de demanda: {e}")
         return None
 
+def calcular_estadisticas_correctas(resultados_dict):
+    """
+    Calcula estadísticas corregidas usando las claves correctas del diccionario de resultados.
+    
+    Args:
+        resultados_dict (dict): Diccionario con los resultados de la optimización
+        
+    Returns:
+        list: Lista de estadísticas calculadas
+    """
+    filas_stats = []
+    
+    # Buscar la clave correcta para el resumen (puede ser "RESUMEN EJECUTIVO" o "RESUMEN")
+    resumen_key = None
+    if "RESUMEN EJECUTIVO" in resultados_dict:
+        resumen_key = "RESUMEN EJECUTIVO"
+    elif "RESUMEN" in resultados_dict:
+        resumen_key = "RESUMEN"
+    
+    if resumen_key and not resultados_dict[resumen_key].empty:
+        resumen_df = resultados_dict[resumen_key]
+        
+        # Agregar información por oferta
+        for col in resumen_df.columns:
+            if "CANTIDAD (KWh)" in col:
+                nombre_oferta = col.replace(" CANTIDAD (KWh)", "")
+                cantidad = resumen_df[col].sum()
+                
+                # Buscar precio correspondiente (puede tener diferentes formatos)
+                precio_promedio = 0
+                posibles_precios = [
+                    f"{nombre_oferta} PRECIO INDEXADO ($/KWh)",
+                    f"{nombre_oferta} PRECIO ($/KWh)",
+                    f"{nombre_oferta} PRECIO PROMEDIO"
+                ]
+                
+                for precio_col in posibles_precios:
+                    if precio_col in resumen_df.columns:
+                        precio_promedio = resumen_df[precio_col].mean()
+                        break
+                
+                if cantidad > 0:  # Solo agregar ofertas con asignación
+                    filas_stats.append({
+                        "TIPO": "OFERTA",
+                        "IDENTIFICADOR": nombre_oferta,
+                        "TOTAL ASIGNADO (kWh)": cantidad,
+                        "PRECIO PROMEDIO": precio_promedio,
+                        "COSTO TOTAL": cantidad * precio_promedio
+                    })
+        
+        # Estadísticas generales si hay datos
+        if filas_stats:
+            total_general = sum(s["TOTAL ASIGNADO (kWh)"] for s in filas_stats)
+            costo_general = sum(s["COSTO TOTAL"] for s in filas_stats)
+            precio_promedio_general = costo_general / total_general if total_general > 0 else 0
+            
+            filas_stats.append({
+                "TIPO": "TOTAL",
+                "IDENTIFICADOR": "TODAS LAS OFERTAS",
+                "TOTAL ASIGNADO (kWh)": total_general,
+                "PRECIO PROMEDIO": precio_promedio_general,
+                "COSTO TOTAL": costo_general
+            })
+    
+    return filas_stats
+
 def ejecutar_flujo_completo():
     """
     Ejecuta el flujo completo del sistema:
@@ -89,6 +163,7 @@ def ejecutar_flujo_completo():
     4. Leer demanda
     5. Construir y resolver modelo de optimización
     6. Exportar resultados
+    7. Generar visualizaciones
     
     Returns:
         bool: True si el proceso fue exitoso, False en caso contrario
@@ -181,58 +256,58 @@ def ejecutar_flujo_completo():
             print("ERROR: No se pudieron exportar los resultados")
             return False
         
-        # Paso 12: Calcular estadísticas
-        print("\n=== PASO 11: CALCULAR ESTADÍSTICAS ===")
+        # Paso 12: Generar visualizaciones
+        print("\n=== PASO 11: GENERAR VISUALIZACIONES ===")
+        if VISUALIZACIONES_DISPONIBLES:
+            try:
+                if generar_reporte_completo(resultados_dict, ofertas_df, RESULTADO_OFERTAS):
+                    print("✓ Visualizaciones generadas exitosamente")
+                    print("📊 Se han generado:")
+                    print("   - Gráficas de resumen anual")
+                    print("   - Mapa de calor de asignaciones")
+                    print("   - Estadísticas anuales en Excel")
+                    print("   - Gráficas de distribución por oferta")
+                else:
+                    print("⚠ No se pudieron generar todas las visualizaciones")
+            except Exception as e:
+                print(f"⚠ Error al generar visualizaciones: {e}")
+                logger.warning(f"Error en visualizaciones: {e}")
+        else:
+            print("⚠ Módulo de visualizaciones no disponible")
+        
+        # Paso 13: Calcular estadísticas corregidas
+        print("\n=== PASO 12: CALCULAR ESTADÍSTICAS ===")
         try:
-            # Crear un DataFrame a partir de los resultados para las estadísticas
-            filas_stats = []
+            filas_stats = calcular_estadisticas_correctas(resultados_dict)
             
-            # Agregar información general
-            for oferta in resultados_dict.get("RESUMEN", pd.DataFrame()).columns:
-                if "CANTIDAD" in oferta:
-                    nombre_oferta = oferta.replace(" CANTIDAD", "")
-                    cantidad = resultados_dict["RESUMEN"][oferta].sum()
-                    precio_col = f"{nombre_oferta} PRECIO PROMEDIO"
-                    precio_promedio = resultados_dict["RESUMEN"][precio_col].mean() if precio_col in resultados_dict["RESUMEN"].columns else 0
-                    
-                    filas_stats.append({
-                        "TIPO": "OFERTA",
-                        "IDENTIFICADOR": nombre_oferta,
-                        "TOTAL ASIGNADO (kWh)": cantidad,
-                        "PRECIO PROMEDIO": precio_promedio,
-                        "COSTO TOTAL": cantidad * precio_promedio
-                    })
-            
-            # Estadísticas generales si hay datos
             if filas_stats:
-                total_general = sum(s["TOTAL ASIGNADO (kWh)"] for s in filas_stats)
-                costo_general = sum(s["COSTO TOTAL"] for s in filas_stats)
-                precio_promedio_general = costo_general / total_general if total_general > 0 else 0
-                
-                filas_stats.append({
-                    "TIPO": "TOTAL",
-                    "IDENTIFICADOR": "TODAS LAS OFERTAS",
-                    "TOTAL ASIGNADO (kWh)": total_general,
-                    "PRECIO PROMEDIO": precio_promedio_general,
-                    "COSTO TOTAL": costo_general
-                })
-                
                 stats_df = pd.DataFrame(filas_stats)
                 stats_df.to_excel(ESTADISTICAS_OFERTAS, index=False)
-                print(f"Estadísticas guardadas en {ESTADISTICAS_OFERTAS}")
+                print(f"✓ Estadísticas guardadas en {ESTADISTICAS_OFERTAS}")
+                
+                # Mostrar resumen en consola
+                total_energia = sum(s["TOTAL ASIGNADO (kWh)"] for s in filas_stats if s["TIPO"] == "OFERTA")
+                total_costo = sum(s["COSTO TOTAL"] for s in filas_stats if s["TIPO"] == "OFERTA")
+                precio_promedio = total_costo / total_energia if total_energia > 0 else 0
+                
+                print(f"📈 Resumen de estadísticas:")
+                print(f"   - Energía total asignada: {total_energia:,.2f} kWh")
+                print(f"   - Costo total: ${total_costo:,.2f}")
+                print(f"   - Precio promedio ponderado: ${precio_promedio:.4f}/kWh")
+                print(f"   - Ofertas utilizadas: {len([s for s in filas_stats if s['TIPO'] == 'OFERTA'])}")
             else:
-                print("No hay suficientes datos para generar estadísticas")
+                print("⚠ No hay suficientes datos para generar estadísticas")
         
         except Exception as e:
             logger.warning(f"No se pudieron calcular estadísticas: {e}")
-            print(f"ADVERTENCIA: No se pudieron calcular estadísticas completas.")
+            print(f"⚠ ADVERTENCIA: No se pudieron calcular estadísticas completas: {e}")
         
-        print("\n=== PROCESO COMPLETADO CON ÉXITO ===")
+        print("\n🎉 === PROCESO COMPLETADO CON ÉXITO ===")
         return True
     
     except Exception as e:
         logger.exception(f"Error en el flujo de ejecución: {e}")
-        print(f"ERROR INESPERADO: {e}")
+        print(f"❌ ERROR INESPERADO: {e}")
         return False
 
 def mostrar_menu():
@@ -243,14 +318,15 @@ def mostrar_menu():
     print("3. Crear/actualizar proyección de precio SICEP")
     print("4. Procesar ofertas (solo tabla maestra y precios)")
     print("5. Optimizar asignación de ofertas con Pyomo")
-    print("6. Ver configuración actual")
+    print("6. Generar solo visualizaciones")  # Nueva opción
+    print("7. Ver configuración actual")
     print("0. Salir")
     print("=============================================")
     return solicitar_input_seguro(
         "Seleccione una opción: ",
         tipo=int,
-        validacion=lambda x: 0 <= x <= 6,
-        mensaje_error="Opción inválida. Ingrese un número entre 0 y 6."
+        validacion=lambda x: 0 <= x <= 7,
+        mensaje_error="Opción inválida. Ingrese un número entre 0 y 7."
     )
 
 def procesar_ofertas_solo_tabla():
@@ -280,19 +356,19 @@ def procesar_ofertas_solo_tabla():
             print("ERROR: No se pudieron procesar las ofertas")
             return False
             
-        print(f"\n=== PROCESO COMPLETADO CON ÉXITO ===")
+        print(f"\n✅ === PROCESO COMPLETADO CON ÉXITO ===")
         print(f"Resultados guardados en: {RESULTADO_OFERTAS}")
         return True
         
     except Exception as e:
         logger.exception(f"Error en el procesamiento de ofertas: {e}")
-        print(f"ERROR INESPERADO: {e}")
+        print(f"❌ ERROR INESPERADO: {e}")
         return False
 
 def optimizar_con_pyomo():
     """
     Ejecuta el proceso de optimización con Pyomo y exporta los resultados
-    en el formato específico requerido.
+    en el formato específico requerido, incluyendo visualizaciones.
     
     Returns:
         bool: True si el proceso fue exitoso, False en caso contrario
@@ -334,58 +410,75 @@ def optimizar_con_pyomo():
             print("ERROR: No se pudieron exportar los resultados")
             return False
         
-        # Calcular estadísticas
+        # Generar visualizaciones
+        print("\n=== GENERANDO VISUALIZACIONES ===")
+        if VISUALIZACIONES_DISPONIBLES:
+            try:
+                if generar_reporte_completo(resultados_dict, ofertas_df, RESULTADO_OFERTAS):
+                    print("✓ Visualizaciones generadas exitosamente")
+                else:
+                    print("⚠ No se pudieron generar todas las visualizaciones")
+            except Exception as e:
+                print(f"⚠ Error al generar visualizaciones: {e}")
+        else:
+            print("⚠ Módulo de visualizaciones no disponible")
+        
+        # Calcular estadísticas corregidas
         print("\n=== CALCULANDO ESTADÍSTICAS ===")
         try:
-            # Crear un DataFrame a partir de los resultados para las estadísticas
-            filas_stats = []
+            filas_stats = calcular_estadisticas_correctas(resultados_dict)
             
-            # Agregar información general
-            for oferta in resultados_dict.get("RESUMEN", pd.DataFrame()).columns:
-                if "CANTIDAD" in oferta:
-                    nombre_oferta = oferta.replace(" CANTIDAD", "")
-                    cantidad = resultados_dict["RESUMEN"][oferta].sum()
-                    precio_col = f"{nombre_oferta} PRECIO PROMEDIO"
-                    precio_promedio = resultados_dict["RESUMEN"][precio_col].mean() if precio_col in resultados_dict["RESUMEN"].columns else 0
-                    
-                    filas_stats.append({
-                        "TIPO": "OFERTA",
-                        "IDENTIFICADOR": nombre_oferta,
-                        "TOTAL ASIGNADO (kWh)": cantidad,
-                        "PRECIO PROMEDIO": precio_promedio,
-                        "COSTO TOTAL": cantidad * precio_promedio
-                    })
-            
-            # Estadísticas generales si hay datos
             if filas_stats:
-                total_general = sum(s["TOTAL ASIGNADO (kWh)"] for s in filas_stats)
-                costo_general = sum(s["COSTO TOTAL"] for s in filas_stats)
-                precio_promedio_general = costo_general / total_general if total_general > 0 else 0
-                
-                filas_stats.append({
-                    "TIPO": "TOTAL",
-                    "IDENTIFICADOR": "TODAS LAS OFERTAS",
-                    "TOTAL ASIGNADO (kWh)": total_general,
-                    "PRECIO PROMEDIO": precio_promedio_general,
-                    "COSTO TOTAL": costo_general
-                })
-                
                 stats_df = pd.DataFrame(filas_stats)
                 stats_df.to_excel(ESTADISTICAS_OFERTAS, index=False)
-                print(f"Estadísticas guardadas en {ESTADISTICAS_OFERTAS}")
+                print(f"✓ Estadísticas guardadas en {ESTADISTICAS_OFERTAS}")
             else:
-                print("No hay suficientes datos para generar estadísticas")
+                print("⚠ No hay suficientes datos para generar estadísticas")
         
         except Exception as e:
             logger.warning(f"No se pudieron calcular estadísticas: {e}")
-            print(f"ADVERTENCIA: No se pudieron calcular estadísticas completas.")
+            print(f"⚠ ADVERTENCIA: No se pudieron calcular estadísticas completas: {e}")
         
-        print("\n=== PROCESO COMPLETADO CON ÉXITO ===")
+        print("\n🎉 === PROCESO COMPLETADO CON ÉXITO ===")
         return True
         
     except Exception as e:
         logger.exception(f"Error en el proceso de optimización: {e}")
-        print(f"ERROR INESPERADO: {e}")
+        print(f"❌ ERROR INESPERADO: {e}")
+        return False
+
+def generar_solo_visualizaciones():
+    """
+    Genera solo las visualizaciones basadas en resultados existentes.
+    """
+    try:
+        print("\n=== GENERANDO VISUALIZACIONES DESDE RESULTADOS EXISTENTES ===")
+        
+        if not VISUALIZACIONES_DISPONIBLES:
+            print("❌ ERROR: Módulo de visualizaciones no disponible")
+            return False
+        
+        # Verificar que existe el archivo de resultados
+        if not verificar_archivo_existe(RESULTADO_OFERTAS):
+            print(f"❌ ERROR: No se encontró el archivo de resultados: {RESULTADO_OFERTAS}")
+            print("💡 Sugerencia: Ejecute primero la opción 5 (Optimizar asignación)")
+            return False
+        
+        # Leer ofertas evaluadas
+        ofertas_df = leer_ofertas_evaluadas(RESULTADO_OFERTAS)
+        if ofertas_df.empty:
+            print("❌ ERROR: No hay ofertas válidas en los resultados")
+            return False
+        
+        print("⚠ NOTA: Esta funcionalidad requiere implementar lectura de resultados existentes")
+        print("🔧 En desarrollo: función para cargar resultados desde archivos Excel")
+        print("💡 Por ahora, use la opción 5 para generar optimización completa con visualizaciones")
+        
+        return True
+        
+    except Exception as e:
+        logger.exception(f"Error al generar visualizaciones: {e}")
+        print(f"❌ ERROR INESPERADO: {e}")
         return False
 
 def main():
@@ -426,7 +519,7 @@ def main():
         opcion = mostrar_menu()
         
         if opcion == 0:
-            print("Saliendo del sistema...")
+            print("👋 Saliendo del sistema...")
             break
         elif opcion == 1:
             ejecutar_flujo_completo()
@@ -443,11 +536,15 @@ def main():
             print("\n=== OPTIMIZAR ASIGNACIÓN DE OFERTAS CON PYOMO ===")
             optimizar_con_pyomo()
         elif opcion == 6:
+            print("\n=== GENERAR SOLO VISUALIZACIONES ===")
+            generar_solo_visualizaciones()
+        elif opcion == 7:
             print("\n=== CONFIGURACIÓN ACTUAL ===")
-            print(f"Archivo de datos iniciales: {DATOS_INICIALES}")
-            print(f"Carpeta de ofertas: {OFERTAS_DIR}")
-            print(f"Archivo de resultados: {RESULTADO_OFERTAS}")
-            print(f"Archivo de estadísticas: {ESTADISTICAS_OFERTAS}")
+            print(f"📁 Archivo de datos iniciales: {DATOS_INICIALES}")
+            print(f"📁 Carpeta de ofertas: {OFERTAS_DIR}")
+            print(f"📁 Archivo de resultados: {RESULTADO_OFERTAS}")
+            print(f"📁 Archivo de estadísticas: {ESTADISTICAS_OFERTAS}")
+            print(f"📊 Visualizaciones disponibles: {'✅' if VISUALIZACIONES_DISPONIBLES else '❌'}")
 
     return True
 
