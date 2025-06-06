@@ -19,5 +19,5 @@ def generar_reporte_completo(resultados_dict, ofertas_df, archivo_salida):
     Returns:
         bool: True si la operación fue exitosa, False en caso contrario
     """
-    print("Generando visualizaciones usando el nuevo sistema...")
+    print("📊 Generando visualizaciones usando el sistema mejorado...")
     return generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salida)

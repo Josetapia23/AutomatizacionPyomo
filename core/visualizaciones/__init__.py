@@ -2,14 +2,15 @@
 Módulo de visualizaciones para el sistema de optimización energética.
 """
 
-# Importar funciones de los submódulos
-from .basicas import *
-from .avanzadas import *
-from .reportes import *
-from .utils import *
-
-# Importar específicamente para compatibilidad
+# Importar función principal de reportes
 from .reportes import generar_reporte_completo_mejorado
+
+# Importar funciones básicas
+from .basicas import (
+    crear_grafica_principal_energia_asignada,
+    crear_grafica_resumen_general,
+    crear_grafica_torta_adjudicacion
+)
 
 # Función de compatibilidad para main.py
 def generar_reporte_completo(resultados_dict, ofertas_df, archivo_salida):
@@ -25,5 +26,14 @@ def generar_reporte_completo(resultados_dict, ofertas_df, archivo_salida):
     Returns:
         bool: True si la operación fue exitosa, False en caso contrario
     """
-    print("Generando visualizaciones usando el nuevo sistema...")
+    print("📊 Generando visualizaciones usando el sistema mejorado...")
     return generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salida)
+
+# Exportar funciones principales
+__all__ = [
+    'generar_reporte_completo',
+    'generar_reporte_completo_mejorado',
+    'crear_grafica_principal_energia_asignada',
+    'crear_grafica_resumen_general',
+    'crear_grafica_torta_adjudicacion'
+]
