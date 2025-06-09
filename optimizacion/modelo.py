@@ -273,6 +273,7 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
     Extrae los resultados del modelo optimizado y los organiza en DataFrames.
     Realiza iteraciones hasta agotar la demanda o la capacidad disponible.
     Prioriza la asignación por precio específico en cada hora y día.
+    CORREGIDO: Incluye TODAS las ofertas en el resumen ejecutivo.
     
     Args:
         model (ConcreteModel): Modelo Pyomo resuelto
@@ -285,6 +286,8 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
     logger.info("Extrayendo resultados del modelo...")
     print("Extrayendo resultados del modelo...")
     
+    
+    
     # Identificar todas las ofertas que tienen combinaciones válidas en el modelo
     ofertas_validas = []
     for i in model.I:
@@ -292,7 +295,30 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
         if any((i, a, h) in model.OFH for a in model.A for h in model.H):
             ofertas_validas.append(i)
     
-    print(f"Ofertas válidas identificadas: {ofertas_validas}")
+    # NUEVO: También obtener ofertas que no pasaron la evaluación desde ofertas_df
+    ofertas_rechazadas = []
+    todas_las_ofertas_df = []
+    
+    if ofertas_df is not None:
+        # Obtener TODAS las ofertas únicas del DataFrame original
+        todas_las_ofertas_df = ofertas_df['CÓDIGO OFERTA'].unique().tolist()
+        
+         # ========== LOGS DE DEBUG ADICIONALES ==========
+        print(f"DEBUG - TODAS las ofertas en DataFrame original: {todas_las_ofertas_df}")
+        print(f"DEBUG - Ofertas válidas del modelo: {ofertas_validas}")
+    # ========== FIN DEBUG ==========
+        
+        # Identificar ofertas rechazadas (las que NO están en ofertas_validas)
+        ofertas_rechazadas = [oferta for oferta in todas_las_ofertas_df if oferta not in ofertas_validas]
+    
+    # TODAS las ofertas (válidas + rechazadas)
+    todas_las_ofertas = ofertas_validas + ofertas_rechazadas
+    
+    print(f"DEBUG - Ofertas válidas identificadas: {ofertas_validas}")
+    
+    print(f"Ofertas válidas para optimización: {ofertas_validas}")
+    print(f"Ofertas rechazadas por evaluación: {ofertas_rechazadas}")
+    print(f"Total de ofertas a incluir en resumen: {todas_las_ofertas}")
     
     # Verificar que hay ofertas válidas
     if not ofertas_validas:
@@ -506,6 +532,7 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
         print("Demanda faltante procesada correctamente")
         
         # GENERAR RESUMEN EJECUTIVO CON TODA LA INFORMACIÓN REQUERIDA
+        # CORREGIDO: Incluir TODAS las ofertas, no solo las procesadas
         resumen_ejecutivo_rows = []
         
         # Agrupar fechas por mes cronológicamente
@@ -553,55 +580,61 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
             # Crear fila para el resumen ejecutivo
             row_resumen = {"FECHA": display_key}
             
-            # Calcular totales y precios para cada oferta
-            for oferta in ofertas_procesadas:
+            # CORREGIDO: Procesar TODAS las ofertas (procesadas + rechazadas)
+            for oferta in todas_las_ofertas:
                 total_energia = 0
                 total_costo_indexado = 0
                 total_costo_sin_indexar = 0
                 
-                # Sumar todas las iteraciones
-                for it in range(1, iteracion_actual):
-                    key_it = f"DEMANDA ASIGNADA {oferta} IT{it}_COMPRAR"
-                    if key_it in resultados:
-                        df_it = resultados[key_it]
-                        for fecha in fechas:
-                            fecha_rows = df_it[df_it["FECHA"] == fecha]
-                            if not fecha_rows.empty:
-                                for hora in range(1, 25):
-                                    energia_asignada = fecha_rows.iloc[0].get(hora, 0)
-                                    if energia_asignada > 0:
-                                        # Obtener el precio para esta combinación (PRECIO INDEXADO)
-                                        if (oferta, fecha, hora) in model.OFH:
-                                            precio_indexado = pyo.value(model.PO[oferta, fecha, hora])
-                                            
-                                            # Inicializar precio sin indexar con el precio indexado por defecto
-                                            precio_sin_indexar = precio_indexado
-                                            
-                                            # Buscar precio sin indexar en ofertas_df si está disponible
-                                            if has_ofertas_df:
-                                                try:
-                                                    # Filtrar el DataFrame por las tres condiciones
-                                                    ofertas_filtradas = ofertas_df[
-                                                        (ofertas_df['CÓDIGO OFERTA'] == oferta) & 
-                                                        (ofertas_df['FECHA'] == fecha) & 
-                                                        (ofertas_df['Atributo'] == hora)
-                                                    ]
-                                                    
-                                                    if not ofertas_filtradas.empty:
-                                                        # Verificar si existe la columna PRECIO
-                                                        if 'PRECIO' in ofertas_filtradas.columns:
-                                                            # Obtener el precio original sin indexar
-                                                            precio_original = ofertas_filtradas.iloc[0]['PRECIO']
-                                                            if not pd.isna(precio_original):
-                                                                precio_sin_indexar = precio_original
-                                                except Exception as e:
-                                                    logger.warning(f"Error al buscar precio sin indexar: {e}")
-                                            
-                                            # Acumular para cálculos de promedio ponderado
-                                            total_energia += energia_asignada
-                                            total_costo_indexado += energia_asignada * precio_indexado
-                                            total_costo_sin_indexar += energia_asignada * precio_sin_indexar
-                
+                if oferta in ofertas_procesadas:
+                    # Oferta que participó en la optimización
+                    # Sumar todas las iteraciones
+                    for it in range(1, iteracion_actual):
+                        key_it = f"DEMANDA ASIGNADA {oferta} IT{it}_COMPRAR"
+                        if key_it in resultados:
+                            df_it = resultados[key_it]
+                            for fecha in fechas:
+                                fecha_rows = df_it[df_it["FECHA"] == fecha]
+                                if not fecha_rows.empty:
+                                    for hora in range(1, 25):
+                                        energia_asignada = fecha_rows.iloc[0].get(hora, 0)
+                                        if energia_asignada > 0:
+                                            # Obtener el precio para esta combinación (PRECIO INDEXADO)
+                                            if (oferta, fecha, hora) in model.OFH:
+                                                precio_indexado = pyo.value(model.PO[oferta, fecha, hora])
+                                                
+                                                # Inicializar precio sin indexar con el precio indexado por defecto
+                                                precio_sin_indexar = precio_indexado
+                                                
+                                                # Buscar precio sin indexar en ofertas_df si está disponible
+                                                if has_ofertas_df:
+                                                    try:
+                                                        # Filtrar el DataFrame por las tres condiciones
+                                                        ofertas_filtradas = ofertas_df[
+                                                            (ofertas_df['CÓDIGO OFERTA'] == oferta) & 
+                                                            (ofertas_df['FECHA'] == fecha) & 
+                                                            (ofertas_df['Atributo'] == hora)
+                                                        ]
+                                                        
+                                                        if not ofertas_filtradas.empty:
+                                                            # Verificar si existe la columna PRECIO
+                                                            if 'PRECIO' in ofertas_filtradas.columns:
+                                                                # Obtener el precio original sin indexar
+                                                                precio_original = ofertas_filtradas.iloc[0]['PRECIO']
+                                                                if not pd.isna(precio_original):
+                                                                    precio_sin_indexar = precio_original
+                                                    except Exception as e:
+                                                        logger.warning(f"Error al buscar precio sin indexar: {e}")
+                                                
+                                                # Acumular para cálculos de promedio ponderado
+                                                total_energia += energia_asignada
+                                                total_costo_indexado += energia_asignada * precio_indexado
+                                                total_costo_sin_indexar += energia_asignada * precio_sin_indexar
+                else:
+                    # NUEVO: Oferta que fue rechazada por evaluación
+                    # Para estas ofertas, total_energia = 0 (ya inicializado)
+                    pass  
+                    # print(f"Incluyendo oferta rechazada en resumen: {oferta} (energía asignada = 0)")  # Comentado para evitar spam                
                 # Calcular precios promedio ponderados
                 precio_promedio_indexado = total_costo_indexado / total_energia if total_energia > 0 else 0
                 precio_promedio_sin_indexar = total_costo_sin_indexar / total_energia if total_energia > 0 else 0
@@ -619,7 +652,7 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
         # Guardar DataFrame de resumen ejecutivo
         resultados["RESUMEN EJECUTIVO"] = pd.DataFrame(resumen_ejecutivo_rows)
         
-        print("Resumen ejecutivo procesado correctamente")
+        print("Resumen ejecutivo procesado correctamente (incluyendo ofertas rechazadas)")
         
         # CALCULAR ESTADÍSTICAS FINALES
         
@@ -629,7 +662,7 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
         # Diccionario para almacenar asignaciones por oferta e iteración
         total_asignado_por_oferta = {}
         
-        # Calcular total asignado por oferta e iteración
+        # Calcular total asignado por oferta e iteración (solo ofertas procesadas)
         for oferta in ofertas_procesadas:
             totales_por_it = {}
             
@@ -653,8 +686,12 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
             
             total_asignado_por_oferta[oferta] = totales_por_it
         
-        # Calcular total asignado sumando todas las ofertas
-        total_asignado = sum(datos["TOTAL"] for datos in total_asignado_por_oferta.values())
+        # Agregar ofertas rechazadas con totales = 0
+        for oferta in ofertas_rechazadas:
+            total_asignado_por_oferta[oferta] = {"TOTAL": 0}
+        
+        # Calcular total asignado sumando todas las ofertas procesadas
+        total_asignado = sum(datos["TOTAL"] for datos in total_asignado_por_oferta.values() if "TOTAL" in datos)
         
         # Calcular déficit total
         total_deficit = sum(row.get(hora, 0) for row in demanda_faltante for hora in range(1, 25))
@@ -665,8 +702,11 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
         
         # Desglose por oferta
         for oferta, datos in total_asignado_por_oferta.items():
-            desglose = ", ".join(f"{it}: {valor:.2f}" for it, valor in datos.items() if it != "TOTAL")
-            logger.info(f"  - {oferta}: {datos['TOTAL']:.2f} kWh ({desglose})")
+            if oferta in ofertas_rechazadas:
+                logger.info(f"  - {oferta}: 0.00 kWh (rechazada por evaluación)")
+            else:
+                desglose = ", ".join(f"{it}: {valor:.2f}" for it, valor in datos.items() if it != "TOTAL")
+                logger.info(f"  - {oferta}: {datos['TOTAL']:.2f} kWh ({desglose})")
         
         logger.info(f"Déficit total: {total_deficit:.2f} kWh")
         
@@ -678,6 +718,7 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
             logger.info(f"Porcentaje déficit: {porcentaje_deficit:.2f}%")
         
         print(f"Resultados extraídos: {sum(len(df) for df in resultados.values())} filas en total")
+        print(f"Ofertas incluidas en resumen ejecutivo: {len(todas_las_ofertas)} (procesadas: {len(ofertas_procesadas)}, rechazadas: {len(ofertas_rechazadas)})")
         
     except Exception as e:
         # Capturar y mostrar errores generales

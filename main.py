@@ -208,7 +208,11 @@ def ejecutar_flujo_completo():
         
         # Paso 7: Leer ofertas para optimización
         print("\n=== PASO 6: LEER OFERTAS PARA OPTIMIZACIÓN ===")
-        ofertas_df = leer_ofertas_evaluadas(RESULTADO_OFERTAS)
+        ofertas_df = leer_ofertas_evaluadas(RESULTADO_OFERTAS, solo_validas=True)
+        
+        # Leer TODAS las ofertas para resumen completo
+        ofertas_df_completas = leer_ofertas_evaluadas(RESULTADO_OFERTAS, solo_validas=False)
+        
         if ofertas_df.empty:
             print("ERROR: No hay ofertas válidas para optimización")
             return False
@@ -227,7 +231,7 @@ def ejecutar_flujo_completo():
         
         # Paso 10: Extraer resultados
         print("\n=== PASO 9: EXTRAER RESULTADOS ===")
-        resultados_dict = extraer_resultados(model, ofertas_df)
+        resultados_dict = extraer_resultados(model, ofertas_df_completas)
         
         # Calcular déficit total
         if "DEMANDA_FALTANTE" in resultados_dict:
@@ -383,7 +387,11 @@ def optimizar_con_pyomo():
         
         # Leer ofertas para optimización
         print("\n=== LEYENDO OFERTAS EVALUADAS ===")
-        ofertas_df = leer_ofertas_evaluadas(RESULTADO_OFERTAS)
+        ofertas_df = leer_ofertas_evaluadas(RESULTADO_OFERTAS, solo_validas=True)
+        
+        # Leer TODAS las ofertas para resumen completo
+        ofertas_df_completas = leer_ofertas_evaluadas(RESULTADO_OFERTAS, solo_validas=False)
+        
         if ofertas_df.empty:
             print("ERROR: No hay ofertas válidas para optimización")
             return False
@@ -402,7 +410,7 @@ def optimizar_con_pyomo():
         
         # Extraer resultados en formato mejorado
         print("\n=== EXTRAYENDO RESULTADOS ===")
-        resultados_dict = extraer_resultados(model, ofertas_df)
+        resultados_dict = extraer_resultados(model, ofertas_df_completas)
         
         # Exportar resultados en el formato específico
         print("\n=== EXPORTANDO RESULTADOS ===")

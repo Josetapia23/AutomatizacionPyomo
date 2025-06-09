@@ -259,13 +259,16 @@ def crear_hoja_demanda_faltante(asignaciones_df, output_file):
         logger.error(f"Error al crear hoja de demanda faltante: {e}")
         return False
 
-def leer_ofertas_evaluadas(archivo_ofertas, sheet_name="CANTIDADES Y PRECIOS"):
+# En core/evaluacion.py, modifica la función leer_ofertas_evaluadas
+
+def leer_ofertas_evaluadas(archivo_ofertas, sheet_name="CANTIDADES Y PRECIOS", solo_validas=True):
     """
     Lee las ofertas evaluadas desde un archivo Excel.
     
     Args:
         archivo_ofertas (str o Path): Ruta al archivo Excel con ofertas
         sheet_name (str): Nombre de la hoja a leer
+        solo_validas (bool): Si True, filtra solo ofertas válidas. Si False, retorna TODAS.
         
     Returns:
         DataFrame: DataFrame con las ofertas evaluadas
@@ -302,7 +305,13 @@ def leer_ofertas_evaluadas(archivo_ofertas, sheet_name="CANTIDADES Y PRECIOS"):
         if "PRECIO INDEXADO" in df.columns:
             df['PRECIO INDEXADO'] = pd.to_numeric(df['PRECIO INDEXADO'], errors='coerce')
         
-        # Filtrar ofertas válidas
+        # NUEVO: Retornar todas las ofertas si solo_validas=False
+        if not solo_validas:
+            logger.info(f"Se leyeron {len(df)} ofertas (incluyendo rechazadas)")
+            print(f"Se leyeron {len(df)} ofertas (incluyendo rechazadas)")
+            return df
+        
+        # Filtrar ofertas válidas (comportamiento original)
         if "PRECIO INDEXADO" in df.columns and "CANTIDAD" in df.columns:
             df_filtrada = df.dropna(subset=['PRECIO INDEXADO'])
             df_filtrada = df_filtrada[df_filtrada['CANTIDAD'] > 0]
@@ -696,7 +705,13 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
             # Exportar hoja de RESUMEN EJECUTIVO (reemplaza a las hojas RESUMEN y RESUMEN SIN INDEXAR)
             if "RESUMEN EJECUTIVO" in resultados_dict:
                 df_export = resultados_dict["RESUMEN EJECUTIVO"].copy()
-                
+                # ========== LOGS DE DEBUG ==========
+                print(f"DEBUG - Columnas en RESUMEN EJECUTIVO antes de exportar: {df_export.columns.tolist()}")
+                print(f"DEBUG - ¿Contiene BTG? {any('BTG' in str(col) for col in df_export.columns)}")
+                print(f"DEBUG - Número de filas en resumen: {len(df_export)}")
+                if len(df_export) > 0:
+                    print(f"DEBUG - Primera fila de datos: {df_export.iloc[0].to_dict()}")
+                # ========== FIN DE LOGS DE DEBUG ==========
                 # El formato de fecha ya está establecido como MM/YYYY
                 # No reordenar, preservar el orden original
                 

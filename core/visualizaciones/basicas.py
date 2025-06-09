@@ -22,7 +22,6 @@ logger = logging.getLogger(__name__)
 def crear_grafica_principal_energia_asignada(resultados_dict):
     """
     Crea la gráfica principal de ENERGÍA ASIGNADA Y NO ASIGNADA por horas.
-    Esta es la gráfica principal solicitada por el cliente.
     
     Args:
         resultados_dict (dict): Diccionario con los resultados de la optimización

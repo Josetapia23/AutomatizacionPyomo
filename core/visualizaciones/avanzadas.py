@@ -1,202 +1,417 @@
 """
-Visualizaciones avanzadas para el sistema de optimización energética.
-VERSIÓN SIMPLIFICADA: Solo las funciones básicas por ahora.
+Funciones avanzadas para la generación de visualizaciones del sistema de optimización energética.
+Incluye mapas de calor, distribuciones por agente y análisis temporales detallados.
 """
 
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import plotly.express as px
 from plotly.subplots import make_subplots
 import logging
+from datetime import datetime
+from pathlib import Path
 
 from .utils import (
     format_number, convert_to_gwh, extract_dates_from_results,
-    extract_hours_from_results, extract_offers_from_results,
-    extract_years_months_from_dates, format_date_for_display,
-    generate_color_scale
+    extract_offers_from_results, format_date_for_display
 )
 
-# Configurar logging
 logger = logging.getLogger(__name__)
-
-def crear_grafica_distribucion_horaria(resultados_dict):
-    """
-    GRÁFICA AUXILIAR: Distribución de energía por hora (versión simplificada).
-    
-    Similar a la gráfica principal pero con un enfoque diferente.
-    Por ahora mantiene la funcionalidad existente.
-    
-    Args:
-        resultados_dict (dict): Diccionario con los resultados
-        
-    Returns:
-        plotly.graph_objects.Figure: Figura Plotly con la gráfica de distribución horaria
-    """
-    print("🔍 Creando gráfica de distribución horaria (versión simplificada)...")
-    
-    # Extraer datos por hora
-    horas = list(range(1, 25))
-    gwh_asignados = [0] * 24
-    gwh_no_asignados = [0] * 24
-    porcentaje_no_asignado = [0] * 24
-    
-    # Procesar demanda faltante para obtener datos por hora
-    if "DEMANDA_FALTANTE" in resultados_dict:
-        df_faltante = resultados_dict["DEMANDA_FALTANTE"]
-        
-        # Inicializar arrays para almacenar los totales
-        demanda_total_por_hora = [0] * 24
-        demanda_faltante_por_hora = [0] * 24
-        
-        # Sumar los valores para cada hora a través de todas las fechas
-        for hora in horas:
-            for _, row in df_faltante.iterrows():
-                if hora in row and not pd.isna(row[hora]):
-                    demanda_faltante_por_hora[hora-1] += row[hora]
-        
-        # Calcular la energía asignada por hora (todas las ofertas, todas las iteraciones)
-        energia_asignada_por_hora = [0] * 24
-        
-        for key, df in resultados_dict.items():
-            if isinstance(df, pd.DataFrame) and not df.empty:
-                if "DEMANDA ASIGNADA" in key and "_COMPRAR" in key:
-                    for hora in horas:
-                        if hora in df.columns:
-                            energia_asignada_por_hora[hora-1] += df[hora].sum()
-        
-        # Calcular la demanda total por hora (asignada + faltante)
-        for hora in range(24):
-            demanda_total_por_hora[hora] = energia_asignada_por_hora[hora] + demanda_faltante_por_hora[hora]
-            
-            # Convertir a GWh
-            gwh_asignados[hora] = convert_to_gwh(energia_asignada_por_hora[hora])
-            gwh_no_asignados[hora] = convert_to_gwh(demanda_faltante_por_hora[hora])
-            
-            # Calcular porcentaje de no asignación
-            if demanda_total_por_hora[hora] > 0:
-                porcentaje_no_asignado[hora] = (demanda_faltante_por_hora[hora] / demanda_total_por_hora[hora]) * 100
-            else:
-                porcentaje_no_asignado[hora] = 0
-    
-    # Crear figura
-    fig = go.Figure()
-    
-    # Añadir barras apiladas para energía asignada y no asignada
-    fig.add_trace(
-        go.Bar(
-            x=horas,
-            y=gwh_asignados,
-            name='GWh Asignados',
-            marker_color='#14213D',  # Azul oscuro
-            hovertemplate='Hora %{x}<br>GWh Asignados: %{y:.2f}<extra></extra>'
-        )
-    )
-    
-    fig.add_trace(
-        go.Bar(
-            x=horas,
-            y=gwh_no_asignados,
-            name='GWh No Asignado',
-            marker_color='rgba(230, 230, 230, 0.7)',  # Gris claro
-            hovertemplate='Hora %{x}<br>GWh No Asignado: %{y:.2f}<extra></extra>'
-        )
-    )
-    
-    # Añadir línea para el porcentaje de no asignación
-    fig.add_trace(
-        go.Scatter(
-            x=horas,
-            y=porcentaje_no_asignado,
-            name='% No Asignado',
-            yaxis='y2',
-            line=dict(color='#48CAE4', width=3),  # Azul
-            mode='lines+markers+text',
-            marker=dict(size=8, symbol='circle', color='#48CAE4', line=dict(color='white', width=1)),
-            text=[f"{p:.1f}%" for p in porcentaje_no_asignado],
-            textposition='top center',
-            textfont=dict(color='#48CAE4'),
-            hovertemplate='Hora %{x}<br>% No Asignado: %{y:.1f}%<extra></extra>'
-        )
-    )
-    
-    # Actualizar diseño
-    fig.update_layout(
-        title_text="<b>DISTRIBUCIÓN HORARIA DE ENERGÍA</b>",
-        barmode='stack',
-        height=600,
-        font=dict(family="Arial, sans-serif"),
-        hoverlabel=dict(bgcolor="white"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        # Configurar ejes X e Y
-        xaxis=dict(
-            title="HORAS",
-            tickvals=horas,
-            gridcolor='rgba(0,0,0,0.1)'
-        ),
-        yaxis=dict(
-            title="GWh",
-            gridcolor='rgba(0,0,0,0.1)',
-            side='left'
-        ),
-        # Configurar segundo eje Y para porcentaje
-        yaxis2=dict(
-            title="% No Asignado",
-            overlaying='y',
-            side='right',
-            range=[0, max(porcentaje_no_asignado) * 1.2 if max(porcentaje_no_asignado) > 0 else 5],
-            tickformat='.1f',
-            ticksuffix='%',
-            gridcolor='rgba(0,0,0,0)'
-        )
-    )
-    
-    print("✅ Gráfica de distribución horaria creada")
-    return fig
 
 def crear_mapa_calor_mensual(resultados_dict):
     """
-    FUNCIÓN PLACEHOLDER: Mapa de calor mensual.
-    
-    Por ahora retorna None para evitar errores.
-    Se implementará en la siguiente iteración.
+    Crea un mapa de calor mensual de demanda faltante.
+    Replica la lógica de Excel: SUMAR.SI.CONJUNTO por año y mes.
     
     Args:
-        resultados_dict (dict): Diccionario con los resultados
+        resultados_dict (dict): Diccionario con los resultados de la optimización
         
     Returns:
-        None: Por ahora no implementada
+        plotly.graph_objects.Figure: Figura con el mapa de calor mensual
     """
-    logger.info("Mapa de calor mensual no implementado en esta versión")
-    return None
+    logger.info("Creando mapa de calor mensual de demanda faltante")
+    
+    try:
+        # Buscar la hoja de demanda faltante
+        if "DEMANDA_FALTANTE" not in resultados_dict:
+            logger.warning("No se encontró DEMANDA_FALTANTE en los resultados")
+            return None
+        
+        demanda_faltante_df = resultados_dict["DEMANDA_FALTANTE"]
+        
+        if demanda_faltante_df.empty:
+            logger.warning("La hoja DEMANDA_FALTANTE está vacía")
+            return None
+        
+        # Crear DataFrame expandido para replicar estructura Excel
+        data_expandida = []
+        
+        for _, row in demanda_faltante_df.iterrows():
+            fecha = row['FECHA']
+            
+            # Extraer año y mes de la fecha
+            if hasattr(fecha, 'year') and hasattr(fecha, 'month'):
+                año = fecha.year
+                mes = fecha.month
+            else:
+                # Si la fecha viene como string, convertirla
+                try:
+                    fecha_dt = pd.to_datetime(fecha)
+                    año = fecha_dt.year
+                    mes = fecha_dt.month
+                except:
+                    logger.warning(f"No se pudo procesar la fecha: {fecha}")
+                    continue
+            
+            # Para cada hora (columnas 1-24), crear un registro
+            for hora in range(1, 25):
+                if hora in row and pd.notna(row[hora]):
+                    valor_kwh = float(row[hora])
+                    valor_gwh = convert_to_gwh(valor_kwh)
+                    
+                    data_expandida.append({
+                        'FECHA': fecha,
+                        'AÑO': año,
+                        'MES': mes,
+                        'HORA': hora,
+                        'DEMANDA_FALTANTE_GWh': valor_gwh
+                    })
+        
+        if not data_expandida:
+            logger.warning("No se encontraron datos válidos para el mapa de calor")
+            return None
+        
+        # Convertir a DataFrame
+        df_expandido = pd.DataFrame(data_expandida)
+        
+        # Obtener años únicos ordenados
+        años_unicos = sorted(df_expandido['AÑO'].unique())
+        meses = list(range(1, 13))  # 1-12
+        
+        # Crear matriz para el heatmap (12 meses x N años)
+        # Sumar por mes y año (replicando la fórmula Excel)
+        matriz_calor = []
+        
+        for mes in meses:
+            fila_mes = []
+            for año in años_unicos:
+                # Filtrar datos para este mes y año específicos
+                datos_filtrados = df_expandido[
+                    (df_expandido['MES'] == mes) & 
+                    (df_expandido['AÑO'] == año)
+                ]
+                
+                # Sumar todos los valores para este mes/año
+                total_mes_año = datos_filtrados['DEMANDA_FALTANTE_GWh'].sum()
+                fila_mes.append(total_mes_año)
+            
+            matriz_calor.append(fila_mes)
+        
+        # Convertir a numpy array para facilitar manipulación
+        matriz_calor = np.array(matriz_calor)
+        
+        # Nombres de meses
+        nombres_meses = [
+            'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+            'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+        ]
+        
+        # Crear etiquetas para los años
+        etiquetas_años = [str(año) for año in años_unicos]
+        
+        # Crear el mapa de calor
+        fig = go.Figure(data=go.Heatmap(
+            z=matriz_calor,
+            x=etiquetas_años,
+            y=nombres_meses,
+            colorscale='RdYlBu_r',  # Rojo para valores altos, azul para bajos
+            hoverongaps=False,
+            text=matriz_calor,
+            texttemplate="%{text:.2f}",
+            textfont={"size": 10},
+            colorbar=dict(
+                title="Demanda Faltante (GWh)",
+                tickmode="auto",
+                thickness=20,
+                len=0.8,
+                x=1.02,  # Mover más a la derecha
+                tickfont=dict(size=10)  # Reducir tamaño de fuente
+            )
+        ))
+        
+        # Configurar layout
+        fig.update_layout(
+            title={
+                'text': "MAPA DE CALOR: DEMANDA FALTANTE MENSUAL",
+                'x': 0.5,
+                'xanchor': 'center',
+                'font': {'size': 18, 'color': '#1f4e79', 'family': 'Arial Black'}
+            },
+            xaxis_title="AÑO",
+            yaxis_title="MES",
+            width=900,  # Aumentar ancho para dar espacio al colorbar
+            height=600,
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            font=dict(size=12),
+            margin=dict(l=100, r=150, t=80, b=100)  # Más margen derecho
+        )
+        
+        # Configurar ejes
+        fig.update_xaxes(
+            tickfont=dict(size=12),
+            title_font=dict(size=14)
+        )
+        
+        fig.update_yaxes(
+            tickfont=dict(size=12),
+            title_font=dict(size=14)
+        )
+        
+        # Agregar anotación explicativa (movida para no tapar)
+        fig.add_annotation(
+            x=0.02, y=-0.08, 
+            xref="paper", yref="paper",
+            text="<b>Valores en GWh</b><br>Rojo = Mayor demanda faltante<br>Azul = Menor demanda faltante",
+            showarrow=False,
+            font=dict(size=10, color="#666666"),
+            bgcolor="rgba(255,255,255,0.9)",
+            bordercolor="#cccccc",
+            borderwidth=1,
+            align="left"
+        )
+        
+        logger.info("Mapa de calor mensual creado exitosamente")
+        print(f"📊 Mapa de calor generado: {len(años_unicos)} años × 12 meses")
+        
+        return fig
+        
+    except Exception as e:
+        logger.error(f"Error al crear mapa de calor mensual: {e}")
+        print(f"❌ Error en mapa de calor mensual: {e}")
+        return None
 
-def crear_grafica_distribucion_por_agente(resultados_dict):
+def crear_distribucion_por_agente(resultados_dict):
     """
-    FUNCIÓN PLACEHOLDER: Distribución por agente.
-    
-    Por ahora retorna None para evitar errores.
-    Se implementará en la siguiente iteración.
+    Crea gráfica de distribución por agente (EPM, AES, ISAGEN) separando DA/ENA.
     
     Args:
         resultados_dict (dict): Diccionario con los resultados
         
     Returns:
-        None: Por ahora no implementada
+        plotly.graph_objects.Figure: Figura con distribución por agente
     """
-    logger.info("Distribución por agente no implementada en esta versión")
-    return None
+    logger.info("Creando gráfica de distribución por agente")
+    
+    try:
+        # Extraer todas las fechas únicas y normalizarlas
+        todas_fechas = set()
+        for clave, df in resultados_dict.items():
+            if isinstance(df, pd.DataFrame) and not df.empty and "FECHA" in df.columns:
+                for fecha in df["FECHA"].unique():
+                    # Normalizar fecha
+                    if hasattr(fecha, 'date'):
+                        fecha_normalizada = fecha.date()
+                    elif isinstance(fecha, str):
+                        fecha_normalizada = pd.to_datetime(fecha).date()
+                    else:
+                        fecha_normalizada = fecha
+                    todas_fechas.add(fecha_normalizada)
+        
+        todas_fechas = sorted(list(todas_fechas))
+        
+        if not todas_fechas:
+            logger.warning("No se encontraron fechas para procesar")
+            return None
+        
+        # Inicializar diccionario para almacenar datos por agente
+        datos_agentes = {}
+        
+        # Procesar cada hoja de resultados
+        for clave, df in resultados_dict.items():
+            if not isinstance(df, pd.DataFrame) or df.empty:
+                continue
+            
+            # Identificar si es DA (COMPRAR) o ENA (NO_COMPRADA)
+            if "DEMANDA ASIGNADA" in clave:
+                # Extraer nombre del agente de la clave
+                try:
+                    # Formato: "DEMANDA ASIGNADA {agente} IT{num}_{tipo}"
+                    partes = clave.split("DEMANDA ASIGNADA ")[1]
+                    agente = partes.split(" IT")[0]
+                    
+                    if "_COMPRAR" in clave:
+                        tipo = "DA"
+                    elif "_NO_COMPRADA" in clave:
+                        tipo = "ENA"
+                    else:
+                        continue
+                    
+                    clave_agente = f"{agente}_{tipo}"
+                    
+                    if clave_agente not in datos_agentes:
+                        datos_agentes[clave_agente] = {fecha: 0.0 for fecha in todas_fechas}
+                    
+                    # Sumar valores por fecha
+                    for _, row in df.iterrows():
+                        fecha = row['FECHA']
+                        
+                        # Normalizar fecha para comparación consistente
+                        if hasattr(fecha, 'date'):
+                            fecha_normalizada = fecha.date()
+                        elif isinstance(fecha, str):
+                            fecha_normalizada = pd.to_datetime(fecha).date()
+                        else:
+                            fecha_normalizada = fecha
+                        
+                        # Buscar fecha equivalente en todas_fechas
+                        fecha_encontrada = None
+                        for fecha_ref in todas_fechas:
+                            if hasattr(fecha_ref, 'date'):
+                                fecha_ref_normalizada = fecha_ref.date()
+                            elif isinstance(fecha_ref, str):
+                                fecha_ref_normalizada = pd.to_datetime(fecha_ref).date()
+                            else:
+                                fecha_ref_normalizada = fecha_ref
+                            
+                            if fecha_normalizada == fecha_ref_normalizada:
+                                fecha_encontrada = fecha_ref
+                                break
+                        
+                        if fecha_encontrada:
+                            # Sumar todas las horas (columnas 1-24)
+                            total_fecha = 0
+                            for hora in range(1, 25):
+                                if hora in row and pd.notna(row[hora]):
+                                    total_fecha += float(row[hora])
+                            
+                            # Convertir a GWh y acumular
+                            datos_agentes[clave_agente][fecha_encontrada] += convert_to_gwh(total_fecha)
+                
+                except Exception as e:
+                    logger.warning(f"Error procesando clave {clave}: {e}")
+                    continue
+        
+        if not datos_agentes:
+            logger.warning("No se encontraron datos de agentes")
+            return None
+        
+        # Crear la gráfica
+        fig = go.Figure()
+        
+        # Definir colores por agente y tipo
+        colores = {
+            'EPM_DA': '#4472C4',      # Azul
+            'EPM_ENA': '#FFA500',     # Naranja
+            'AES_DA': '#70AD47',      # Verde
+            'AES_ENA': '#C65911',     # Marrón/Naranja oscuro
+            'ISAGEN_DA': '#7030A0',   # Morado
+            'ISAGEN_ENA': '#A0522D'   # Marrón
+        }
+        
+        # Agregar trazas para cada agente-tipo
+        for agente_tipo, datos in datos_agentes.items():
+            fechas_ordenadas = sorted(datos.keys())
+            valores = [datos[fecha] for fecha in fechas_ordenadas]
+            
+            # Determinar color
+            color = colores.get(agente_tipo, '#666666')
+            
+            # Formatear nombre para la leyenda
+            if '_DA' in agente_tipo:
+                nombre_leyenda = f"({agente_tipo.replace('_DA', '')}, DA)"
+            elif '_ENA' in agente_tipo:
+                nombre_leyenda = f"({agente_tipo.replace('_ENA', '')}, ENA)"
+            else:
+                nombre_leyenda = agente_tipo
+            
+            # Asegurar que las fechas sean consistentes para el ordenamiento
+            fechas_consistentes = []
+            valores_consistentes = []
+            
+            for fecha in fechas_ordenadas:
+                # Convertir fecha a string consistente
+                if hasattr(fecha, 'strftime'):
+                    fecha_str = fecha.strftime('%d/%m/%Y')
+                else:
+                    fecha_str = str(fecha)
+                
+                fechas_consistentes.append(fecha_str)
+                valores_consistentes.append(datos[fecha])
+            
+            fig.add_trace(go.Bar(
+                x=fechas_consistentes,
+                y=valores_consistentes,
+                name=nombre_leyenda,
+                marker_color=color,
+                opacity=0.8
+            ))
+        
+        # Configurar layout
+        fig.update_layout(
+            title={
+                'text': "DISTRIBUCIÓN DE GWh POR TIPO DE ASIGNACIÓN (DA/ENA) POR AGENTE",
+                'x': 0.5,
+                'xanchor': 'center',
+                'font': {'size': 16, 'color': '#1f4e79'}
+            },
+            xaxis_title="Fecha",
+            yaxis_title="GWh",
+            barmode='group',  # Barras agrupadas
+            width=1200,
+            height=600,
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            legend=dict(
+                title="Agente - Tipo Asignación",
+                orientation="v",
+                yanchor="top",
+                y=1,
+                xanchor="left",
+                x=1.02,
+                font=dict(size=10)
+            ),
+            margin=dict(l=60, r=150, t=80, b=100)
+        )
+        
+        # Configurar ejes
+        fig.update_xaxes(
+            tickangle=45,
+            tickfont=dict(size=10)
+        )
+        
+        fig.update_yaxes(
+            showgrid=True,
+            gridcolor="lightgray",
+            tickfont=dict(size=12)
+        )
+        
+        logger.info("Gráfica de distribución por agente creada exitosamente")
+        return fig
+        
+    except Exception as e:
+        logger.error(f"Error al crear distribución por agente: {e}")
+        print(f"❌ Error en distribución por agente: {e}")
+        return None
 
-def crear_grafica_exposicion_bolsa(resultados_dict):
+def crear_tabla_valores_horarios(resultados_dict):
     """
-    FUNCIÓN PLACEHOLDER: Exposición en bolsa.
-    
-    Por ahora retorna None para evitar errores.
-    Se implementará en la siguiente iteración.
+    Crea tabla de valores horarios por año (similar a la imagen del Excel).
     
     Args:
         resultados_dict (dict): Diccionario con los resultados
         
     Returns:
-        None: Por ahora no implementada
+        plotly.graph_objects.Figure: Figura con tabla de valores horarios
     """
-    logger.info("Exposición en bolsa no implementada en esta versión")
-    return None
+    logger.info("Creando tabla de valores horarios por año")
+    
+    try:
+        # Implementación pendiente - se puede agregar después del mapa de calor
+        logger.info("Tabla de valores horarios - pendiente de implementación")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error al crear tabla de valores horarios: {e}")
+        return None

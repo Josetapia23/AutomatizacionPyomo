@@ -14,6 +14,10 @@ from .basicas import (
     crear_grafica_resumen_general,
     crear_grafica_torta_adjudicacion
 )
+from .avanzadas import (
+    crear_mapa_calor_mensual,
+    crear_distribucion_por_agente
+)
 from .utils import ensure_directory_exists, format_number
 
 logger = logging.getLogger(__name__)
@@ -91,7 +95,37 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
             print(f"  ❌ Error en gráfica de torta: {e}")
             logger.error(f"Error en gráfica de torta: {e}")
         
-        # 4. Crear reporte HTML consolidado
+        # 4. Mapa de Calor Mensual
+        print("🔹 Creando mapa de calor mensual...")
+        graficas_totales += 1
+        try:
+            fig_mapa_calor = crear_mapa_calor_mensual(resultados_dict)
+            if fig_mapa_calor:
+                archivo_mapa = output_dir / "04_mapa_calor_mensual.html"
+                pyo.plot(fig_mapa_calor, filename=str(archivo_mapa), auto_open=False)
+                print(f"  ✅ Mapa de calor mensual guardado: {archivo_mapa}")
+                graficas_exitosas += 1
+            else:
+                print("  ⚠️ No se pudo crear el mapa de calor mensual")
+        except Exception as e:
+            print(f"  ❌ Error en mapa de calor mensual: {e}")
+            logger.error(f"Error en mapa de calor mensual: {e}")
+
+        # 5. Distribución por Agente
+        print("🔹 Creando distribución por agente...")
+        graficas_totales += 1
+        try:
+            fig_agentes = crear_distribucion_por_agente(resultados_dict)
+            if fig_agentes:
+                archivo_agentes = output_dir / "05_distribucion_agentes.html"
+                pyo.plot(fig_agentes, filename=str(archivo_agentes), auto_open=False)
+                print(f"  ✅ Distribución por agente guardada: {archivo_agentes}")
+                graficas_exitosas += 1
+            else:
+                print("  ⚠️ No se pudo crear la distribución por agente")
+        except Exception as e:
+            print(f"  ❌ Error en distribución por agente: {e}")
+            logger.error(f"Error en distribución por agente: {e}")
         print("🔹 Creando reporte HTML consolidado...")
         try:
             crear_reporte_html_consolidado(resultados_dict, output_dir)
@@ -132,6 +166,8 @@ def crear_reporte_html_consolidado(resultados_dict, output_dir):
         fig_principal = crear_grafica_principal_energia_asignada(resultados_dict)
         fig_resumen = crear_grafica_resumen_general(resultados_dict)
         fig_torta = crear_grafica_torta_adjudicacion(resultados_dict)
+        fig_mapa_calor = crear_mapa_calor_mensual(resultados_dict)
+        fig_agentes = crear_distribucion_por_agente(resultados_dict)
         
         # Generar HTML consolidado
         html_content = f"""

@@ -12,6 +12,12 @@ from .basicas import (
     crear_grafica_torta_adjudicacion
 )
 
+# Importar funciones avanzadas
+from .avanzadas import (
+    crear_mapa_calor_mensual,
+    crear_distribucion_por_agente
+)
+
 # Función de compatibilidad para main.py
 def generar_reporte_completo(resultados_dict, ofertas_df, archivo_salida):
     """
@@ -35,5 +41,7 @@ __all__ = [
     'generar_reporte_completo_mejorado',
     'crear_grafica_principal_energia_asignada',
     'crear_grafica_resumen_general',
-    'crear_grafica_torta_adjudicacion'
+    'crear_grafica_torta_adjudicacion',
+    'crear_mapa_calor_mensual',
+    'crear_distribucion_por_agente'
 ]
