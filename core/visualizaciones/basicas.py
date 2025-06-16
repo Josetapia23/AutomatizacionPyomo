@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 def crear_grafica_principal_energia_asignada(resultados_dict):
     """
     Crea la gráfica principal de ENERGÍA ASIGNADA Y NO ASIGNADA por horas.
+    CORREGIDO: Usa SOLO hojas _NO_COMPRADA para ENA (como hace el cliente).
     
     Args:
         resultados_dict (dict): Diccionario con los resultados de la optimización
@@ -45,9 +46,10 @@ def crear_grafica_principal_energia_asignada(resultados_dict):
             # Identificar tipo de hoja
             es_demanda_asignada = "DEMANDA ASIGNADA" in clave and "_COMPRAR" in clave
             es_energia_no_asignada = "DEMANDA ASIGNADA" in clave and "_NO_COMPRADA" in clave
-            es_demanda_faltante = clave == "DEMANDA_FALTANTE"
+            # ❌ ELIMINADO: es_demanda_faltante = clave == "DEMANDA_FALTANTE"
             
-            if es_demanda_asignada or es_energia_no_asignada or es_demanda_faltante:
+            # ✅ SOLO usar _COMPRAR y _NO_COMPRADA (como hace el cliente)
+            if es_demanda_asignada or es_energia_no_asignada:
                 # Procesar cada fila del DataFrame
                 for _, row in df.iterrows():
                     # Sumar valores por hora (columnas 1-24)
@@ -58,8 +60,13 @@ def crear_grafica_principal_energia_asignada(resultados_dict):
                             
                             if es_demanda_asignada:
                                 gwh_asignados[hora-1] += valor_gwh
-                            elif es_energia_no_asignada or es_demanda_faltante:
+                            elif es_energia_no_asignada:
                                 gwh_no_asignados[hora-1] += valor_gwh
+        
+        # Logs para verificar los nuevos valores
+        logger.info(f"CORREGIDO ENA - GWh Asignados hora 1: {gwh_asignados[0]:.2f}")
+        logger.info(f"CORREGIDO ENA - GWh No Asignados hora 1: {gwh_no_asignados[0]:.2f}")
+        logger.info(f"CORREGIDO ENA - Total hora 1: {gwh_asignados[0] + gwh_no_asignados[0]:.2f}")
         
         # Calcular porcentajes
         porcentajes_no_asignado = []
@@ -70,6 +77,14 @@ def crear_grafica_principal_energia_asignada(resultados_dict):
             else:
                 porcentaje = 0
             porcentajes_no_asignado.append(porcentaje)
+        
+        # Log del porcentaje para verificar
+        logger.info(f"CORREGIDO ENA - % No Asignado hora 1: {porcentajes_no_asignado[0]:.2f}%")
+        
+        # Verificar rango de variación
+        porcentaje_min = min(porcentajes_no_asignado) if porcentajes_no_asignado else 0
+        porcentaje_max = max(porcentajes_no_asignado) if porcentajes_no_asignado else 0
+        logger.info(f"CORREGIDO ENA - Variación %: {porcentaje_min:.2f}% - {porcentaje_max:.2f}%")
         
         # Crear la figura con subplots para eje secundario
         fig = make_subplots(
@@ -98,7 +113,7 @@ def crear_grafica_principal_energia_asignada(resultados_dict):
                 x=horas,
                 y=gwh_no_asignados,
                 name="GWh No Asignado",
-                marker_color="#a8c8ec",  # Azul claro
+                marker_color="#87CEEB",  # Azul claro como cliente
                 text=[f"{val:.2f}" for val in gwh_no_asignados],
                 textposition="inside",
                 textfont=dict(color="black", size=10),
@@ -107,20 +122,25 @@ def crear_grafica_principal_energia_asignada(resultados_dict):
             secondary_y=False
         )
         
-        # Agregar línea de porcentaje no asignado
+        # Agregar línea de porcentaje no asignado (CON CURVATURA)
         fig.add_trace(
             go.Scatter(
                 x=horas,
                 y=porcentajes_no_asignado,
                 mode="lines+markers",
                 name="% No Asignado",
-                line=dict(color="#2ecc71", width=3),  # Verde
+                line=dict(
+                    color="#2ecc71", 
+                    width=3,
+                    shape='spline',     # ← Línea curva
+                    smoothing=0.8       # ← Suavizado
+                ),
                 marker=dict(
                     size=8,
                     color="#2ecc71",
                     line=dict(color="white", width=2)
                 ),
-                text=[f"{val:.1f}%" for val in porcentajes_no_asignado],
+                text=[f"{val:.2f}%" for val in porcentajes_no_asignado],
                 textposition="top center",
                 textfont=dict(color="#2ecc71", size=11, family="Arial Black"),
                 showlegend=True
@@ -138,13 +158,25 @@ def crear_grafica_principal_energia_asignada(resultados_dict):
             secondary_y=False
         )
         
-        # Configurar eje Y secundario (%)
+        # Configurar eje Y secundario (%) - RANGO AJUSTADO
+        # Si el rango es muy pequeño, expandirlo para mostrar variación
+        rango_porcentaje = porcentaje_max - porcentaje_min
+        if rango_porcentaje < 1:
+            centro = (porcentaje_max + porcentaje_min) / 2
+            expansion = max(1, rango_porcentaje * 3)
+            porcentaje_min_visual = centro - expansion/2
+            porcentaje_max_visual = centro + expansion/2
+        else:
+            porcentaje_min_visual = porcentaje_min * 0.95
+            porcentaje_max_visual = porcentaje_max * 1.05
+        
         fig.update_yaxes(
             title_text="% No Asignado",
             title_font=dict(size=14, color="#2ecc71"),
             tickfont=dict(size=12),
             ticksuffix="%",
             showgrid=False,
+            range=[porcentaje_min_visual, porcentaje_max_visual],
             secondary_y=True
         )
         
@@ -185,9 +217,9 @@ def crear_grafica_principal_energia_asignada(resultados_dict):
             showlegend=True
         )
         
-        # Agregar anotaciones para explicar las siglas (como solicitó el cliente)
+        # Agregar anotaciones para explicar las siglas
         fig.add_annotation(
-            x=0.02, y=0.98,
+            x=0.02, y=2,
             xref="paper", yref="paper",
             text="<b>DA:</b> Demanda Asignada | <b>ENA:</b> Energía No Asignada",
             showarrow=False,
@@ -197,7 +229,7 @@ def crear_grafica_principal_energia_asignada(resultados_dict):
             borderwidth=1
         )
         
-        logger.info("Gráfica principal creada exitosamente")
+        logger.info("Gráfica principal creada exitosamente (usando ENA de hojas _NO_COMPRADA)")
         return fig
         
     except Exception as e:

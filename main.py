@@ -26,7 +26,7 @@ from core.ofertas import procesar_ofertas, procesar_precio_sicep
 from core.evaluacion import (
     evaluar_ofertas_para_optimizacion, calcular_estadisticas_ofertas,
     exportar_asignaciones_por_oferta, crear_hoja_demanda_faltante,
-    leer_ofertas_evaluadas, exportar_resultados_por_oferta
+    leer_ofertas_evaluadas, exportar_resultados_por_oferta, cargar_resultados_desde_excel
 )
 from optimizacion.modelo import construir_modelo, extraer_resultados
 from optimizacion.solver import resolver_modelo
@@ -458,6 +458,7 @@ def optimizar_con_pyomo():
 def generar_solo_visualizaciones():
     """
     Genera solo las visualizaciones basadas en resultados existentes.
+    Lee los resultados desde el archivo Excel y genera todas las gráficas.
     """
     try:
         print("\n=== GENERANDO VISUALIZACIONES DESDE RESULTADOS EXISTENTES ===")
@@ -472,21 +473,73 @@ def generar_solo_visualizaciones():
             print("💡 Sugerencia: Ejecute primero la opción 5 (Optimizar asignación)")
             return False
         
-        # Leer ofertas evaluadas
-        ofertas_df = leer_ofertas_evaluadas(RESULTADO_OFERTAS)
-        if ofertas_df.empty:
-            print("❌ ERROR: No hay ofertas válidas en los resultados")
+        print(f"📁 Cargando desde: {RESULTADO_OFERTAS}")
+        
+        # Importar la función que acabamos de crear
+        from core.evaluacion import cargar_resultados_desde_excel
+        
+        # Cargar los resultados desde Excel
+        print("🔄 Cargando resultados desde archivo Excel...")
+        resultados_dict = cargar_resultados_desde_excel(RESULTADO_OFERTAS)
+        
+        if not resultados_dict:
+            print("❌ ERROR: No se pudieron cargar los resultados desde el archivo Excel")
+            print("💡 Posibles causas:")
+            print("   - El archivo no tiene el formato esperado")
+            print("   - Faltan hojas necesarias (DA-*, ENA-*, etc.)")
+            print("   - El archivo está corrupto o abierto en otra aplicación")
             return False
         
-        print("⚠ NOTA: Esta funcionalidad requiere implementar lectura de resultados existentes")
-        print("🔧 En desarrollo: función para cargar resultados desde archivos Excel")
-        print("💡 Por ahora, use la opción 5 para generar optimización completa con visualizaciones")
+        print(f"✅ Resultados cargados exitosamente: {len(resultados_dict)} hojas de datos")
         
-        return True
+        # Leer ofertas evaluadas para compatibilidad con visualizaciones
+        print("📋 Cargando datos de ofertas originales...")
+        ofertas_df = leer_ofertas_evaluadas(RESULTADO_OFERTAS, solo_validas=False)
+        
+        if ofertas_df.empty:
+            print("⚠️ ADVERTENCIA: No se encontraron ofertas evaluadas, continuando sin ellas")
+            ofertas_df = pd.DataFrame()  # DataFrame vacío para compatibilidad
+        else:
+            print(f"✅ Ofertas cargadas: {len(ofertas_df)} registros")
+        
+        # Generar las visualizaciones usando el sistema existente
+        print("\n🎨 Generando visualizaciones...")
+        
+        try:
+            if generar_reporte_completo(resultados_dict, ofertas_df, RESULTADO_OFERTAS):
+                print("\n🎉 ¡Visualizaciones generadas exitosamente!")
+                print("📊 Se han generado:")
+                print("   ✅ Gráfica principal de energía asignada")
+                print("   ✅ Gráfica de resumen general")
+                print("   ✅ Gráfica de torta de adjudicación")
+                print("   ✅ Mapa de calor mensual")
+                print("   ✅ Distribución por agente")
+                print("   ✅ Reporte HTML consolidado")
+                
+                # Mostrar ubicación de los archivos
+                from pathlib import Path
+                output_dir = Path(RESULTADO_OFERTAS).parent / "visualizaciones"
+                print(f"\n📁 Ubicación de las gráficas: {output_dir}")
+                print("💡 Abre el archivo 'reporte_consolidado.html' para ver todas las gráficas")
+                
+                return True
+            else:
+                print("❌ ERROR: No se pudieron generar todas las visualizaciones")
+                print("💡 Revisar logs para más detalles")
+                return False
+                
+        except Exception as e:
+            print(f"❌ ERROR al generar visualizaciones: {e}")
+            logger.exception(f"Error en generación de visualizaciones: {e}")
+            return False
         
     except Exception as e:
-        logger.exception(f"Error al generar visualizaciones: {e}")
+        logger.exception(f"Error general al generar visualizaciones: {e}")
         print(f"❌ ERROR INESPERADO: {e}")
+        print("💡 Sugerencias:")
+        print("   - Verificar que el archivo Excel no esté abierto en otra aplicación")
+        print("   - Revisar que las hojas del archivo tengan el formato correcto")
+        print("   - Intentar ejecutar la opción 5 nuevamente para generar resultados frescos")
         return False
 
 def main():

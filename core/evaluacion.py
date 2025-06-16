@@ -896,4 +896,301 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
         except Exception as alt_e:
             logger.exception(f"Error al crear archivo alternativo: {alt_e}")
             print(f"ERROR: No se pudo crear archivo alternativo: {alt_e}")
-            return False
+            return False     
+        
+def cargar_resultados_desde_excel(archivo_resultados):
+    """
+    Carga los resultados de optimización desde un archivo Excel existente
+    y reconstruye el diccionario de resultados en el formato esperado por las visualizaciones.
+    
+    Args:
+        archivo_resultados (str o Path): Ruta al archivo Excel con los resultados
+        
+    Returns:
+        dict: Diccionario con los resultados en formato compatible con visualizaciones,
+              o diccionario vacío en caso de error
+    """
+    logger.info(f"Cargando resultados desde {archivo_resultados}")
+    print(f"📊 Cargando resultados desde {archivo_resultados}")
+    
+    try:
+        # Verificar que el archivo existe
+        if not verificar_archivo_existe(archivo_resultados):
+            logger.error(f"No se encontró el archivo de resultados: {archivo_resultados}")
+            print(f"❌ ERROR: No se encontró el archivo de resultados: {archivo_resultados}")
+            return {}
+        
+        # Leer todas las hojas del archivo
+        try:
+            excel_file = pd.ExcelFile(archivo_resultados)
+            hojas_disponibles = excel_file.sheet_names
+            print(f"📋 Hojas encontradas: {len(hojas_disponibles)}")
+            
+        except Exception as e:
+            logger.error(f"Error al abrir archivo Excel: {e}")
+            print(f"❌ ERROR: No se pudo abrir el archivo Excel: {e}")
+            return {}
+        
+        # Diccionario para almacenar los resultados reconstruidos
+        resultados_dict = {}
+        
+        # 1. CARGAR HOJAS DE DEMANDA ASIGNADA (DA-* y ENA-*)
+        hojas_da = [h for h in hojas_disponibles if h.startswith('DA-')]
+        hojas_ena = [h for h in hojas_disponibles if h.startswith('ENA-')]
+        
+        print(f"🔍 Encontradas {len(hojas_da)} hojas DA y {len(hojas_ena)} hojas ENA")
+        
+        # Procesar hojas DA (Demanda Asignada - COMPRAR)
+        for hoja_da in hojas_da:
+            try:
+                # Leer la hoja
+                df_raw = pd.read_excel(archivo_resultados, sheet_name=hoja_da)
+                
+                if df_raw.empty:
+                    continue
+                
+                # Extraer nombre de la oferta del nombre de la hoja (formato: "DA-NombreOferta")
+                nombre_oferta = hoja_da.replace('DA-', '')
+                
+                # Buscar la fila que no sea el título
+                df_datos = None
+                for idx, row in df_raw.iterrows():
+                    # Saltar filas de título que contienen "ENERGÍA A COMPRAR"
+                    if pd.notna(row.iloc[0]) and "ENERGÍA A COMPRAR" not in str(row.iloc[0]):
+                        # Esta es una fila de datos
+                        if df_datos is None:
+                            # Crear DataFrame con las columnas correctas
+                            columnas = ['X'] + list(range(1, 25))  # X + horas 1-24
+                            df_datos = pd.DataFrame(columns=['FECHA'] + list(range(1, 25)))
+                        
+                        # Convertir la fila a datos numéricos
+                        fecha_str = row.iloc[0]  # Primera columna es la fecha
+                        
+                        # Convertir fecha de string DD/MM/YYYY a datetime.date
+                        try:
+                            if isinstance(fecha_str, str):
+                                fecha = pd.to_datetime(fecha_str, format='%d/%m/%Y').date()
+                            else:
+                                fecha = fecha_str
+                        except:
+                            continue
+                        
+                        # Crear fila de datos
+                        nueva_fila = {'FECHA': fecha}
+                        
+                        # Agregar valores por hora (columnas 1-24)
+                        for hora in range(1, 25):
+                            try:
+                                valor = float(row.iloc[hora]) if pd.notna(row.iloc[hora]) else 0.0
+                                nueva_fila[hora] = valor
+                            except:
+                                nueva_fila[hora] = 0.0
+                        
+                        # Agregar la fila al DataFrame
+                        df_datos = pd.concat([df_datos, pd.DataFrame([nueva_fila])], ignore_index=True)
+                
+                if df_datos is not None and not df_datos.empty:
+                    # Clave para el diccionario (simulando iteración 1)
+                    clave = f"DEMANDA ASIGNADA {nombre_oferta} IT1_COMPRAR"
+                    resultados_dict[clave] = df_datos
+                    print(f"  ✅ Cargada hoja DA: {nombre_oferta} ({len(df_datos)} registros)")
+                
+            except Exception as e:
+                logger.warning(f"Error al procesar hoja DA {hoja_da}: {e}")
+                print(f"  ⚠️ Error en hoja DA {hoja_da}: {e}")
+        
+        # Procesar hojas ENA (Energía No Asignada - NO_COMPRADA)
+        for hoja_ena in hojas_ena:
+            try:
+                # Leer la hoja
+                df_raw = pd.read_excel(archivo_resultados, sheet_name=hoja_ena)
+                
+                if df_raw.empty:
+                    continue
+                
+                # Extraer nombre de la oferta del nombre de la hoja (formato: "ENA-NombreOferta")
+                nombre_oferta = hoja_ena.replace('ENA-', '')
+                
+                # Buscar la fila que no sea el título
+                df_datos = None
+                for idx, row in df_raw.iterrows():
+                    # Saltar filas de título que contienen "ENERGÍA NO COMPRADA"
+                    if pd.notna(row.iloc[0]) and "ENERGÍA NO COMPRADA" not in str(row.iloc[0]):
+                        # Esta es una fila de datos
+                        if df_datos is None:
+                            # Crear DataFrame con las columnas correctas
+                            df_datos = pd.DataFrame(columns=['FECHA'] + list(range(1, 25)))
+                        
+                        # Convertir la fila a datos numéricos
+                        fecha_str = row.iloc[0]  # Primera columna es la fecha
+                        
+                        # Convertir fecha de string DD/MM/YYYY a datetime.date
+                        try:
+                            if isinstance(fecha_str, str):
+                                fecha = pd.to_datetime(fecha_str, format='%d/%m/%Y').date()
+                            else:
+                                fecha = fecha_str
+                        except:
+                            continue
+                        
+                        # Crear fila de datos
+                        nueva_fila = {'FECHA': fecha}
+                        
+                        # Agregar valores por hora (columnas 1-24)
+                        for hora in range(1, 25):
+                            try:
+                                valor = float(row.iloc[hora]) if pd.notna(row.iloc[hora]) else 0.0
+                                nueva_fila[hora] = valor
+                            except:
+                                nueva_fila[hora] = 0.0
+                        
+                        # Agregar la fila al DataFrame
+                        df_datos = pd.concat([df_datos, pd.DataFrame([nueva_fila])], ignore_index=True)
+                
+                if df_datos is not None and not df_datos.empty:
+                    # Clave para el diccionario (simulando iteración 1)
+                    clave = f"DEMANDA ASIGNADA {nombre_oferta} IT1_NO_COMPRADA"
+                    resultados_dict[clave] = df_datos
+                    print(f"  ✅ Cargada hoja ENA: {nombre_oferta} ({len(df_datos)} registros)")
+                
+            except Exception as e:
+                logger.warning(f"Error al procesar hoja ENA {hoja_ena}: {e}")
+                print(f"  ⚠️ Error en hoja ENA {hoja_ena}: {e}")
+        
+        # 2. CARGAR HOJA DE DEMANDA FALTANTE
+        if "DEMANDA FALTANTE" in hojas_disponibles:
+            try:
+                df_raw = pd.read_excel(archivo_resultados, sheet_name="DEMANDA FALTANTE")
+                
+                if not df_raw.empty:
+                    # Buscar filas que no sean títulos
+                    df_datos = None
+                    for idx, row in df_raw.iterrows():
+                        # Saltar filas de título
+                        if pd.notna(row.iloc[0]) and "DEMANDA FALTANTE" not in str(row.iloc[0]):
+                            if df_datos is None:
+                                df_datos = pd.DataFrame(columns=['FECHA'] + list(range(1, 25)))
+                            
+                            # Procesar fecha
+                            fecha_str = row.iloc[0]
+                            try:
+                                if isinstance(fecha_str, str):
+                                    fecha = pd.to_datetime(fecha_str, format='%d/%m/%Y').date()
+                                else:
+                                    fecha = fecha_str
+                            except:
+                                continue
+                            
+                            # Crear fila de datos
+                            nueva_fila = {'FECHA': fecha}
+                            for hora in range(1, 25):
+                                try:
+                                    valor = float(row.iloc[hora]) if pd.notna(row.iloc[hora]) else 0.0
+                                    nueva_fila[hora] = valor
+                                except:
+                                    nueva_fila[hora] = 0.0
+                            
+                            df_datos = pd.concat([df_datos, pd.DataFrame([nueva_fila])], ignore_index=True)
+                    
+                    if df_datos is not None and not df_datos.empty:
+                        resultados_dict["DEMANDA_FALTANTE"] = df_datos
+                        print(f"  ✅ Cargada DEMANDA FALTANTE ({len(df_datos)} registros)")
+                
+            except Exception as e:
+                logger.warning(f"Error al procesar DEMANDA FALTANTE: {e}")
+                print(f"  ⚠️ Error en DEMANDA FALTANTE: {e}")
+        
+        # 3. CARGAR HOJA DE RESUMEN EJECUTIVO
+        if "RESUMEN EJECUTIVO" in hojas_disponibles:
+            try:
+                # Leer toda la hoja sin procesar
+                df_raw = pd.read_excel(archivo_resultados, sheet_name="RESUMEN EJECUTIVO", header=None)
+                
+                if not df_raw.empty:
+                    print(f"  🔍 DEBUG - Forma del resumen ejecutivo raw: {df_raw.shape}")
+                    
+                    # Buscar la fila que contiene los títulos (primera fila no vacía)
+                    fila_titulos = None
+                    for idx, row in df_raw.iterrows():
+                        # Verificar si esta fila tiene contenido útil como títulos
+                        valores_no_nulos = [val for val in row.values if pd.notna(val) and str(val).strip() != '']
+                        if len(valores_no_nulos) > 5:  # Si tiene más de 5 valores, probablemente son títulos
+                            fila_titulos = idx
+                            break
+                    
+                    if fila_titulos is not None:
+                        # Usar esa fila como nombres de columnas
+                        titulos = df_raw.iloc[fila_titulos].values
+                        print(f"  🔍 DEBUG - Títulos encontrados en fila {fila_titulos}: {titulos}")
+                        
+                        # Crear DataFrame con los datos (filas después de los títulos)
+                        if fila_titulos + 1 < len(df_raw):
+                            df_datos = df_raw.iloc[fila_titulos + 1:].copy()
+                            df_datos.columns = titulos
+                            df_datos = df_datos.reset_index(drop=True)
+                            
+                            # Limpiar columnas con nombres NaN
+                            nuevas_columnas = []
+                            for i, col in enumerate(df_datos.columns):
+                                if pd.isna(col) or str(col).strip() == '':
+                                    nuevas_columnas.append(f"COLUMNA_{i}")
+                                else:
+                                    nuevas_columnas.append(str(col).strip())
+                            
+                            df_datos.columns = nuevas_columnas
+                            
+                            # Solo mantener filas con datos válidos
+                            df_datos = df_datos.dropna(how='all')
+                            
+                            if not df_datos.empty:
+                                resultados_dict["RESUMEN EJECUTIVO"] = df_datos
+                                print(f"  ✅ Cargado RESUMEN EJECUTIVO ({len(df_datos)} registros)")
+                                print(f"  📋 Columnas del resumen: {df_datos.columns.tolist()}")
+                            else:
+                                print(f"  ⚠️ RESUMEN EJECUTIVO sin datos válidos")
+                        else:
+                            print(f"  ⚠️ No hay datos después de los títulos en RESUMEN EJECUTIVO")
+                    else:
+                        # Si no encontramos títulos, usar la primera fila como datos
+                        print(f"  ⚠️ No se encontraron títulos claros, usando toda la hoja")
+                        
+                        # Crear nombres de columnas genéricos
+                        columnas_genericas = [f"COL_{i}" for i in range(len(df_raw.columns))]
+                        df_raw.columns = columnas_genericas
+                        
+                        resultados_dict["RESUMEN EJECUTIVO"] = df_raw
+                        print(f"  ✅ Cargado RESUMEN EJECUTIVO con columnas genéricas ({len(df_raw)} registros)")
+                
+            except Exception as e:
+                logger.warning(f"Error al procesar RESUMEN EJECUTIVO: {e}")
+                print(f"  ⚠️ Error en RESUMEN EJECUTIVO: {e}")
+        
+        # Mostrar resumen de lo que se cargó
+        total_hojas_cargadas = len(resultados_dict)
+        print(f"\n📊 Resumen de carga:")
+        print(f"   ✅ Total hojas cargadas: {total_hojas_cargadas}")
+        
+        if total_hojas_cargadas > 0:
+            print(f"   📋 Tipos de datos cargados:")
+            tipos = {
+                "DA (Demanda Asignada)": len([k for k in resultados_dict.keys() if "_COMPRAR" in k]),
+                "ENA (Energía No Asignada)": len([k for k in resultados_dict.keys() if "_NO_COMPRADA" in k]),
+                "Demanda Faltante": 1 if "DEMANDA_FALTANTE" in resultados_dict else 0,
+                "Resumen Ejecutivo": 1 if "RESUMEN EJECUTIVO" in resultados_dict else 0
+            }
+            
+            for tipo, cantidad in tipos.items():
+                if cantidad > 0:
+                    print(f"     - {tipo}: {cantidad}")
+            
+            logger.info(f"Resultados cargados exitosamente: {total_hojas_cargadas} hojas")
+            return resultados_dict
+        else:
+            logger.warning("No se pudieron cargar datos del archivo Excel")
+            print("⚠️ ADVERTENCIA: No se pudieron cargar datos del archivo Excel")
+            return {}
+            
+    except Exception as e:
+        logger.exception(f"Error general al cargar resultados: {e}")
+        print(f"❌ ERROR GENERAL: {e}")
+        return {}
