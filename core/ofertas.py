@@ -8,6 +8,7 @@ import numpy as np
 from datetime import datetime
 import os
 import logging
+import re
 from pathlib import Path
 
 from config import DATOS_INICIALES, OFERTAS_DIR, RESULTADO_OFERTAS
@@ -22,6 +23,205 @@ from core.utils import (
 from core.indexadores import calcular_numerador, calcular_denominador, crear_proyeccion_precio_sicep
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# NUEVAS FUNCIONES PARA NORMALIZACIÓN DE COLUMNAS
+# ============================================================================
+
+def normalizar_columnas_precios(precios_df, codigo_oferta=""):
+    """
+    Normaliza las columnas de precios para que sean H1, H2, ..., H24
+    Maneja múltiples formatos comunes de nombrado de columnas.
+    
+    Args:
+        precios_df (DataFrame): DataFrame con columnas de precios
+        codigo_oferta (str): Código de la oferta para logs
+        
+    Returns:
+        DataFrame: DataFrame con columnas normalizadas
+    """
+    logger.info(f"Normalizando columnas de precios para oferta: {codigo_oferta}")
+    logger.info(f"Columnas originales: {list(precios_df.columns)}")
+    
+    nuevas_columnas = []
+    columnas_problematicas = []
+    
+    for i, col in enumerate(precios_df.columns):
+        col_str = str(col).strip()
+        
+        # Mantener FECHA como está (case insensitive)
+        if col_str.upper() in ["FECHA", "DATE", "FECHA_OPERACION"]:
+            nuevas_columnas.append("FECHA")
+            continue
+        
+        # Patrones para identificar columnas de horas (ordenados por prioridad)
+        patterns = [
+            # Formatos estándar esperados
+            (r'^\$/KWh-H(\d+)$', "$/KWh-H format"),           # $/KWh-H1, $/KWh-H2, etc.
+            (r'^KWH-H(\d+)$', "KWH-H format"),               # KWH-H1, KWH-H2, etc.
+            (r'^\$/KW[Hh]?[-_]H(\d+)$', "$/KW-H format"),    # $/KW-H1, $/KWh-H1, etc.
+            
+            # Variaciones comunes
+            (r'^PRECIO[-_\s]*H(\d+)$', "PRECIO-H format"),   # PRECIO-H1, PRECIO_H1, PRECIO H1
+            (r'^H(\d+)$', "H format"),                       # H1, H2, etc. (ya normalizada)
+            (r'^(\d+)$', "number format"),                   # 1, 2, 3, etc.
+            
+            # Formatos con separadores diferentes
+            (r'.*[-_/]H(\d+)$', "generic-H format"),         # cualquier cosa-H1, _H1, /H1
+            (r'.*H(\d+)$', "ending-H format"),               # cualquier cosa que termine en H1
+            
+            # Formatos en inglés
+            (r'^HOUR[-_\s]*(\d+)$', "HOUR format"),          # HOUR-1, HOUR_1, HOUR 1
+            (r'^HR[-_\s]*(\d+)$', "HR format"),              # HR-1, HR_1, HR 1
+            
+            # Formatos en español
+            (r'^HORA[-_\s]*(\d+)$', "HORA format"),          # HORA-1, HORA_1, HORA 1
+        ]
+        
+        hora_encontrada = None
+        patron_usado = None
+        
+        for pattern, descripcion in patterns:
+            match = re.search(pattern, col_str, re.IGNORECASE)
+            if match:
+                try:
+                    hora_encontrada = int(match.group(1))
+                    patron_usado = descripcion
+                    break
+                except (ValueError, IndexError):
+                    continue
+        
+        # Validar que la hora esté en rango válido (1-24)
+        if hora_encontrada and 1 <= hora_encontrada <= 24:
+            nuevas_columnas.append(f"H{hora_encontrada}")
+            logger.debug(f"Columna '{col_str}' → 'H{hora_encontrada}' (patrón: {patron_usado})")
+        else:
+            # Si no pudimos identificar la hora, es problemática
+            nuevas_columnas.append(col_str)
+            columnas_problematicas.append((i, col_str))
+            logger.warning(f"No se pudo normalizar la columna '{col_str}' (posición {i})")
+    
+    # Aplicar los nuevos nombres
+    precios_df_copy = precios_df.copy()
+    precios_df_copy.columns = nuevas_columnas
+    
+    # Verificar completitud (debemos tener H1-H24 + FECHA)
+    columnas_esperadas = [f"H{i}" for i in range(1, 25)]
+    columnas_encontradas = [col for col in nuevas_columnas if col.startswith('H')]
+    columnas_faltantes = set(columnas_esperadas) - set(columnas_encontradas)
+    columnas_extra = set(columnas_encontradas) - set(columnas_esperadas)
+    
+    # Logs de resultado
+    logger.info(f"Normalización completada para {codigo_oferta}:")
+    logger.info(f"  - Columnas de horas encontradas: {len(columnas_encontradas)}/24")
+    logger.info(f"  - Columnas normalizadas: {sorted(columnas_encontradas)}")
+    
+    if columnas_faltantes:
+        logger.warning(f"  - Columnas faltantes: {sorted(columnas_faltantes)}")
+    
+    if columnas_extra:
+        logger.warning(f"  - Columnas extra/duplicadas: {sorted(columnas_extra)}")
+    
+    if columnas_problematicas:
+        logger.warning(f"  - Columnas problemáticas: {[col for _, col in columnas_problematicas]}")
+        print(f"⚠️  ADVERTENCIA en {codigo_oferta}: Columnas no reconocidas: {[col for _, col in columnas_problematicas]}")
+    
+    # Mostrar resultado en consola para debug
+    print(f"✅ {codigo_oferta} - Precios: {len(columnas_encontradas)}/24 columnas de horas normalizadas")
+    
+    return precios_df_copy
+
+def normalizar_columnas_cantidad(cantidad_df, codigo_oferta=""):
+    """
+    Normaliza las columnas de cantidad para que sean KWH-H1, KWH-H2, ..., KWH-H24
+    
+    Args:
+        cantidad_df (DataFrame): DataFrame con columnas de cantidad
+        codigo_oferta (str): Código de la oferta para logs
+        
+    Returns:
+        DataFrame: DataFrame con columnas normalizadas
+    """
+    logger.info(f"Normalizando columnas de cantidad para oferta: {codigo_oferta}")
+    logger.info(f"Columnas originales: {list(cantidad_df.columns)}")
+    
+    nuevas_columnas = []
+    columnas_problematicas = []
+    
+    for i, col in enumerate(cantidad_df.columns):
+        col_str = str(col).strip()
+        
+        # Mantener FECHA como está
+        if col_str.upper() in ["FECHA", "DATE", "FECHA_OPERACION"]:
+            nuevas_columnas.append("FECHA")
+            continue
+        
+        # Patrones para cantidad (ordenados por prioridad)
+        patterns = [
+            # Formatos estándar esperados
+            (r'^KWH-H(\d+)$', "KWH-H format"),              # KWH-H1, KWH-H2, etc.
+            (r'^KW[Hh][-_]H(\d+)$', "KWH_H format"),        # KWH_H1, KWh-H1, etc.
+            
+            # Variaciones comunes
+            (r'^CANTIDAD[-_\s]*H(\d+)$', "CANTIDAD-H format"), # CANTIDAD-H1, CANTIDAD_H1
+            (r'^ENERGY[-_\s]*H(\d+)$', "ENERGY-H format"),     # ENERGY-H1, ENERGY_H1
+            (r'^H(\d+)$', "H format"),                         # H1, H2, etc.
+            (r'^(\d+)$', "number format"),                     # 1, 2, 3, etc.
+            
+            # Formatos genéricos
+            (r'.*[-_/]H(\d+)$', "generic-H format"),          # cualquier cosa-H1
+            (r'.*H(\d+)$', "ending-H format"),                # cualquier cosa que termine en H1
+        ]
+        
+        hora_encontrada = None
+        patron_usado = None
+        
+        for pattern, descripcion in patterns:
+            match = re.search(pattern, col_str, re.IGNORECASE)
+            if match:
+                try:
+                    hora_encontrada = int(match.group(1))
+                    patron_usado = descripcion
+                    break
+                except (ValueError, IndexError):
+                    continue
+        
+        # Validar rango (1-24)
+        if hora_encontrada and 1 <= hora_encontrada <= 24:
+            nuevas_columnas.append(f"KWH-H{hora_encontrada}")
+            logger.debug(f"Columna '{col_str}' → 'KWH-H{hora_encontrada}' (patrón: {patron_usado})")
+        else:
+            nuevas_columnas.append(col_str)
+            columnas_problematicas.append((i, col_str))
+            logger.warning(f"No se pudo normalizar la columna '{col_str}' (posición {i})")
+    
+    # Aplicar cambios
+    cantidad_df_copy = cantidad_df.copy()
+    cantidad_df_copy.columns = nuevas_columnas
+    
+    # Verificar completitud
+    columnas_esperadas = [f"KWH-H{i}" for i in range(1, 25)]
+    columnas_encontradas = [col for col in nuevas_columnas if col.startswith('KWH-H')]
+    columnas_faltantes = set(columnas_esperadas) - set(columnas_encontradas)
+    
+    # Logs
+    logger.info(f"Normalización de cantidad completada para {codigo_oferta}:")
+    logger.info(f"  - Columnas de horas encontradas: {len(columnas_encontradas)}/24")
+    
+    if columnas_faltantes:
+        logger.warning(f"  - Columnas faltantes: {sorted(columnas_faltantes)}")
+    
+    if columnas_problematicas:
+        logger.warning(f"  - Columnas problemáticas: {[col for _, col in columnas_problematicas]}")
+        print(f"⚠️  ADVERTENCIA en {codigo_oferta}: Columnas no reconocidas en cantidad: {[col for _, col in columnas_problematicas]}")
+    
+    print(f"✅ {codigo_oferta} - Cantidad: {len(columnas_encontradas)}/24 columnas de horas normalizadas")
+    
+    return cantidad_df_copy
+
+# ============================================================================
+# FUNCIONES ORIGINALES (MODIFICADAS PARA USAR NORMALIZACIÓN)
+# ============================================================================
 
 def procesar_precio_sicep(datos_iniciales=DATOS_INICIALES):
     """
@@ -245,7 +445,7 @@ def procesar_ofertas(carpeta_ofertas=OFERTAS_DIR, datos_iniciales=DATOS_INICIALE
     """
     Lee todos los archivos de ofertas en la carpeta especificada,
     construye la TABLA MAESTRA OFERTAS y la hoja CANTIDADES Y PRECIOS.
-    Ahora incluye procesamiento de ofertas FNCER.
+    Ahora incluye procesamiento de ofertas FNCER y normalización robusta de columnas.
     
     Args:
         carpeta_ofertas (Path): Carpeta donde se encuentran las ofertas
@@ -285,6 +485,10 @@ def procesar_ofertas(carpeta_ofertas=OFERTAS_DIR, datos_iniciales=DATOS_INICIALE
     if not archivos:
         logger.error(f"No se encontraron archivos en {carpeta_ofertas}")
         return False
+    
+    print(f"\n📂 Se encontraron {len(archivos)} archivos de ofertas:")
+    for archivo in archivos:
+        print(f"   - {archivo}")
     
     # Leer los indexadores y proyecciones
     indexadores_df = leer_excel_seguro(datos_iniciales, "INDEXADORES")
@@ -328,12 +532,17 @@ def procesar_ofertas(carpeta_ofertas=OFERTAS_DIR, datos_iniciales=DATOS_INICIALE
     tabla_maestra = []
     cantidades_precios = []
     
+    # Contadores para estadísticas
+    ofertas_procesadas_exitosamente = 0
+    ofertas_con_errores = 0
+    
     # Procesar cada archivo de oferta
     for archivo in archivos:
         codigo_oferta = os.path.splitext(archivo)[0]
         ruta_archivo = os.path.join(carpeta_ofertas, archivo)
         
         logger.info(f"Procesando oferta: {codigo_oferta}")
+        print(f"\n🔄 Procesando oferta: {codigo_oferta}")
         
         # Leer las hojas necesarias
         try:
@@ -343,14 +552,60 @@ def procesar_ofertas(carpeta_ofertas=OFERTAS_DIR, datos_iniciales=DATOS_INICIALE
             
             if indexador_df.empty or cantidad_df.empty or precios_df.empty:
                 logger.error(f"Error al leer las hojas de {ruta_archivo}")
+                ofertas_con_errores += 1
+                print(f"❌ {codigo_oferta}: Error - No se pudieron leer las hojas necesarias")
                 continue
             
-            # Limpiar nombres de columnas en precios_df
-            precios_df.columns = precios_df.columns.str.replace(r"\$/KWh-", "", regex=True)
+            # =================================================================
+            # NUEVA SECCIÓN DE NORMALIZACIÓN DE COLUMNAS
+            # =================================================================
             
-            # Convertir fechas
-            cantidad_df['FECHA'] = pd.to_datetime(cantidad_df['FECHA'], format="%d/%m/%Y").dt.date
-            precios_df['FECHA'] = pd.to_datetime(precios_df['FECHA'], format="%d/%m/%Y").dt.date
+            try:
+                # Normalizar columnas ANTES de procesar
+                print(f"🔧 Normalizando columnas para oferta: {codigo_oferta}")
+                
+                # Normalizar columnas de precios
+                precios_df = normalizar_columnas_precios(precios_df, codigo_oferta)
+                
+                # Normalizar columnas de cantidad 
+                cantidad_df = normalizar_columnas_cantidad(cantidad_df, codigo_oferta)
+                
+                # Verificar que tengamos las columnas mínimas necesarias
+                precios_cols = [col for col in precios_df.columns if col.startswith('H')]
+                cantidad_cols = [col for col in cantidad_df.columns if col.startswith('KWH-H')]
+                
+                if len(precios_cols) == 0:
+                    logger.error(f"❌ {codigo_oferta}: No se encontraron columnas de horas válidas en precios")
+                    print(f"❌ {codigo_oferta}: ERROR - No hay columnas de precios válidas")
+                    ofertas_con_errores += 1
+                    continue
+                    
+                if len(cantidad_cols) == 0:
+                    logger.error(f"❌ {codigo_oferta}: No se encontraron columnas de horas válidas en cantidad")
+                    print(f"❌ {codigo_oferta}: ERROR - No hay columnas de cantidad válidas")
+                    ofertas_con_errores += 1
+                    continue
+                
+                print(f"✅ {codigo_oferta}: Normalización exitosa ({len(precios_cols)} precios, {len(cantidad_cols)} cantidades)")
+                
+            except Exception as e:
+                logger.error(f"❌ Error al normalizar columnas en {codigo_oferta}: {e}")
+                print(f"❌ {codigo_oferta}: ERROR en normalización - {e}")
+                ofertas_con_errores += 1
+                continue
+            
+            # =================================================================
+            # CONVERTIR FECHAS (mantener como estaba)
+            # =================================================================
+            
+            try:
+                cantidad_df['FECHA'] = pd.to_datetime(cantidad_df['FECHA'], format="%d/%m/%Y").dt.date
+                precios_df['FECHA'] = pd.to_datetime(precios_df['FECHA'], format="%d/%m/%Y").dt.date
+            except Exception as e:
+                logger.error(f"❌ Error al convertir fechas en {codigo_oferta}: {e}")
+                print(f"❌ {codigo_oferta}: ERROR en conversión de fechas - {e}")
+                ofertas_con_errores += 1
+                continue
             
             # Extraer datos del indexador
             indexador_data = {
@@ -374,10 +629,16 @@ def procesar_ofertas(carpeta_ofertas=OFERTAS_DIR, datos_iniciales=DATOS_INICIALE
             tabla_maestra.append(indexador_data)
         except Exception as e:
             logger.error(f"Error al procesar metadatos de la oferta {codigo_oferta}: {e}")
+            ofertas_con_errores += 1
+            print(f"❌ {codigo_oferta}: ERROR en metadatos - {e}")
             continue
         
         # Determinar si esta oferta es de tipo FNCER
         es_fncer = indexador_data.get("FNCER", "NO") == "SI"
+        
+        # Contadores para esta oferta
+        registros_procesados = 0
+        registros_con_error = 0
         
         # Procesar cada fila de cantidad_df y cada hora
         for _, row in cantidad_df.iterrows():
@@ -393,90 +654,111 @@ def procesar_ofertas(carpeta_ofertas=OFERTAS_DIR, datos_iniciales=DATOS_INICIALE
                 fecha_aux = f"{fecha.year}-{fecha.month}"
                 
                 for hora in range(1, 25):
-                    # Obtener precio para esta hora y fecha
-                    precio_hora = precios_df.loc[precios_df['FECHA'] == fecha, f"H{hora}"].values
-                    precio_hora = precio_hora[0] if len(precio_hora) > 0 else None
-                    
-                    # Calcular numerador y denominador
                     try:
-                        numerador_valor = calcular_numerador(
-                            fecha,
-                            indexador_data["INDEXADOR"],
-                            indexador_data["NUMERADOR"],
-                            indexadores_df,
-                            proyeccion_df
-                        )
+                        # Obtener precio para esta hora y fecha
+                        precio_hora = precios_df.loc[precios_df['FECHA'] == fecha, f"H{hora}"].values
+                        precio_hora = precio_hora[0] if len(precio_hora) > 0 else None
                         
-                        denominador_valor = calcular_denominador(
-                            indexador_data["FECHA BASE"],
-                            indexador_data["INDEXADOR"],
-                            indexador_data["DENOMINADOR"],
-                            indexadores_df,
-                            proyeccion_df
-                        )
-                        
-                        # Calcular precio indexado
-                        if (
-                            precio_hora is not None
-                            and numerador_valor is not None
-                            and denominador_valor is not None
-                            and denominador_valor != 0
-                        ):
-                            precio_indexado = (precio_hora + 0) * ((numerador_valor + 0) / (denominador_valor + 0))
-                        else:
-                            precio_indexado = None
-                        
-                        # Obtener PRECIO SICEP para ese año-mes
-                        precio_sicep_val = sicep_dict.get('SICEP', {}).get(fecha_aux, 0)
-                        
-                        # Si es oferta FNCER, obtener precio FNCER
-                        precio_fncer_val = None
-                        if es_fncer:
-                            precio_fncer_val = sicep_dict.get('FNCER', {}).get(fecha_aux, 0)
-                            # Si no hay precio FNCER, usar un valor predeterminado o registrar mensaje
-                            if precio_fncer_val == 0:
-                                logger.warning(f"No se encontró precio FNCER para {fecha_aux} en oferta {codigo_oferta}")
-                        
-                        # Obtener PRECIO BOLSA para ese año-mes
-                        precio_bolsa_val = bolsa_dict.get(fecha_aux, 0)
-                        
-                        # Evaluación usando la función evaluar_oferta con la constante SICEP
-                        evaluacion = evaluar_oferta(
-                            precio_indexado,
-                            precio_sicep_val,
-                            precio_bolsa_val,
-                            constante_sicep,
-                            precio_fncer=precio_fncer_val,
-                            es_oferta_fncer=es_fncer
-                        )
-                        
-                        # Construimos el diccionario en el orden que necesitamos
-                        fila_resultado = {
-                            "CÓDIGO OFERTA": codigo_oferta,
-                            "FECHA": fecha,
-                            "Atributo": hora,
-                            "CANTIDAD": row.get(f"KWH-H{hora}", 0),
-                            "PRECIO": precio_hora,
-                            "INDEXADOR": indexador_data["INDEXADOR"],
-                            "NUMERADOR": indexador_data["NUMERADOR"],
-                            "DENOMINADOR": indexador_data["DENOMINADOR"],
-                            "FECHA BASE": indexador_data["FECHA BASE"],
-                            "NUMERADOR #": numerador_valor,
-                            "DENOMINADOR #": denominador_valor,
-                            "PRECIO INDEXADO": precio_indexado,
-                            "FNCER": indexador_data.get("FNCER", "NO"),
-                            "PRECIO SICEP": precio_sicep_val if not es_fncer else precio_fncer_val,
-                            "PRECIO BOLSA": precio_bolsa_val,
-                            "EVALUACIÓN": evaluacion
-                        }
-                        
-                        cantidades_precios.append(fila_resultado)
+                        # Calcular numerador y denominador
+                        try:
+                            numerador_valor = calcular_numerador(
+                                fecha,
+                                indexador_data["INDEXADOR"],
+                                indexador_data["NUMERADOR"],
+                                indexadores_df,
+                                proyeccion_df
+                            )
+                            
+                            denominador_valor = calcular_denominador(
+                                indexador_data["FECHA BASE"],
+                                indexador_data["INDEXADOR"],
+                                indexador_data["DENOMINADOR"],
+                                indexadores_df,
+                                proyeccion_df
+                            )
+                            
+                            # Calcular precio indexado
+                            if (
+                                precio_hora is not None
+                                and numerador_valor is not None
+                                and denominador_valor is not None
+                                and denominador_valor != 0
+                            ):
+                                precio_indexado = (precio_hora + 0) * ((numerador_valor + 0) / (denominador_valor + 0))
+                            else:
+                                precio_indexado = None
+                            
+                            # Obtener PRECIO SICEP para ese año-mes
+                            precio_sicep_val = sicep_dict.get('SICEP', {}).get(fecha_aux, 0)
+                            
+                            # Si es oferta FNCER, obtener precio FNCER
+                            precio_fncer_val = None
+                            if es_fncer:
+                                precio_fncer_val = sicep_dict.get('FNCER', {}).get(fecha_aux, 0)
+                                # Si no hay precio FNCER, usar un valor predeterminado o registrar mensaje
+                                if precio_fncer_val == 0:
+                                    logger.warning(f"No se encontró precio FNCER para {fecha_aux} en oferta {codigo_oferta}")
+                            
+                            # Obtener PRECIO BOLSA para ese año-mes
+                            precio_bolsa_val = bolsa_dict.get(fecha_aux, 0)
+                            
+                            # Evaluación usando la función evaluar_oferta con la constante SICEP
+                            evaluacion = evaluar_oferta(
+                                precio_indexado,
+                                precio_sicep_val,
+                                precio_bolsa_val,
+                                constante_sicep,
+                                precio_fncer=precio_fncer_val,
+                                es_oferta_fncer=es_fncer
+                            )
+                            
+                            # Construimos el diccionario en el orden que necesitamos
+                            fila_resultado = {
+                                "CÓDIGO OFERTA": codigo_oferta,
+                                "FECHA": fecha,
+                                "Atributo": hora,
+                                "CANTIDAD": row.get(f"KWH-H{hora}", 0),
+                                "PRECIO": precio_hora,
+                                "INDEXADOR": indexador_data["INDEXADOR"],
+                                "NUMERADOR": indexador_data["NUMERADOR"],
+                                "DENOMINADOR": indexador_data["DENOMINADOR"],
+                                "FECHA BASE": indexador_data["FECHA BASE"],
+                                "NUMERADOR #": numerador_valor,
+                                "DENOMINADOR #": denominador_valor,
+                                "PRECIO INDEXADO": precio_indexado,
+                                "FNCER": indexador_data.get("FNCER", "NO"),
+                                "PRECIO SICEP": precio_sicep_val if not es_fncer else precio_fncer_val,
+                                "PRECIO BOLSA": precio_bolsa_val,
+                                "EVALUACIÓN": evaluacion
+                            }
+                            
+                            cantidades_precios.append(fila_resultado)
+                            registros_procesados += 1
+                            
+                        except Exception as e:
+                            logger.error(f"Error al procesar hora {hora} fecha {fecha} oferta {codigo_oferta}: {e}")
+                            registros_con_error += 1
+                            continue
+                            
                     except Exception as e:
                         logger.error(f"Error al procesar hora {hora} fecha {fecha} oferta {codigo_oferta}: {e}")
+                        registros_con_error += 1
                         continue
+                        
             except Exception as e:
                 logger.error(f"Error al procesar fila en oferta {codigo_oferta}: {e}")
+                registros_con_error += 1
                 continue
+        
+        # Mostrar estadísticas de la oferta procesada
+        if registros_procesados > 0:
+            ofertas_procesadas_exitosamente += 1
+            print(f"✅ {codigo_oferta}: {registros_procesados} registros procesados exitosamente")
+            if registros_con_error > 0:
+                print(f"⚠️  {codigo_oferta}: {registros_con_error} registros con errores")
+        else:
+            ofertas_con_errores += 1
+            print(f"❌ {codigo_oferta}: No se procesaron registros exitosamente")
     
     # Convertir a DataFrames
     tabla_maestra_df = pd.DataFrame(tabla_maestra)
@@ -485,6 +767,9 @@ def procesar_ofertas(carpeta_ofertas=OFERTAS_DIR, datos_iniciales=DATOS_INICIALE
     # Verificar que tengamos datos para guardar
     if tabla_maestra_df.empty or cantidades_precios_df.empty:
         logger.error("No se generaron datos para guardar")
+        print(f"\n❌ ERROR: No se generaron datos para guardar")
+        print(f"   - Ofertas procesadas: {ofertas_procesadas_exitosamente}")
+        print(f"   - Ofertas con errores: {ofertas_con_errores}")
         return False
     
     # Guardar en archivo de salida
@@ -497,8 +782,26 @@ def procesar_ofertas(carpeta_ofertas=OFERTAS_DIR, datos_iniciales=DATOS_INICIALE
             cantidades_precios_df.to_excel(writer, sheet_name="CANTIDADES Y PRECIOS", index=False)
         
         logger.info(f"Resultados guardados en {archivo_salida}")
-        print(f"Se procesaron {len(tabla_maestra)} ofertas con {len(cantidades_precios)} registros")
+        
+        # Mostrar estadísticas finales
+        print(f"\n🎉 PROCESAMIENTO COMPLETADO:")
+        print(f"   ✅ Ofertas procesadas exitosamente: {ofertas_procesadas_exitosamente}")
+        print(f"   ❌ Ofertas con errores: {ofertas_con_errores}")
+        print(f"   📊 Total de registros generados: {len(cantidades_precios)}")
+        print(f"   💾 Archivo guardado: {archivo_salida}")
+        
+        # Mostrar desglose por evaluación
+        if not cantidades_precios_df.empty:
+            evaluaciones = cantidades_precios_df['EVALUACIÓN'].value_counts()
+            print(f"\n📈 RESULTADOS DE EVALUACIÓN:")
+            for eval_val, count in evaluaciones.items():
+                status = "✅ APROBADOS" if eval_val == 1 else "❌ RECHAZADOS"
+                percentage = (count / len(cantidades_precios_df)) * 100
+                print(f"   {status}: {count:,} registros ({percentage:.1f}%)")
+        
         return True
+        
     except Exception as e:
         logger.error(f"Error al guardar resultados: {e}")
+        print(f"\n❌ ERROR al guardar resultados: {e}")
         return False
