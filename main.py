@@ -31,6 +31,14 @@ from core.evaluacion import (
 from optimizacion.modelo import construir_modelo, extraer_resultados
 from optimizacion.solver import resolver_modelo
 
+try:
+    from core.ofertas_optimizado import procesar_ofertas_optimizado_corregido
+    OPTIMIZACION_DISPONIBLE = True
+    print("🚀 Versión optimizada CORREGIDA de procesamiento cargada")
+except ImportError:
+    OPTIMIZACION_DISPONIBLE = False
+    print("⚠️ Versión optimizada no disponible, usando versión estándar")
+
 # Importar visualizaciones (con manejo de errores en caso de que no exista aún)
 try:
     from core.visualizaciones import generar_reporte_completo
@@ -337,6 +345,7 @@ def procesar_ofertas_solo_tabla():
     """
     Ejecuta solo la parte de procesamiento de ofertas para generar la tabla maestra
     y la hoja de cantidades y precios, sin pasar a la optimización.
+    AHORA USA LA VERSIÓN OPTIMIZADA.
     
     Returns:
         bool: True si el proceso fue exitoso, False en caso contrario
@@ -349,25 +358,29 @@ def procesar_ofertas_solo_tabla():
             
         # Procesar PRECIO SICEP
         print("\n=== PROCESANDO PRECIO SICEP ===")
-        sicep_dict = procesar_precio_sicep(DATOS_INICIALES)
+        from core.ofertas_optimizado import procesar_precio_sicep_rapido
+        sicep_dict = procesar_precio_sicep_rapido(DATOS_INICIALES)
         if sicep_dict is None:
             print("ERROR: No se pudo procesar el precio SICEP")
             return False
             
-        # Procesar ofertas
-        print("\n=== PROCESANDO OFERTAS ===")
-        if not procesar_ofertas(OFERTAS_DIR, DATOS_INICIALES, RESULTADO_OFERTAS):
+       # Procesar ofertas CON LA VERSIÓN OPTIMIZADA CORREGIDA
+        print("\n=== PROCESANDO OFERTAS (OPTIMIZADO CORREGIDO) ===")
+        from core.ofertas_optimizado import procesar_ofertas_optimizado_corregido
+        
+        if not procesar_ofertas_optimizado_corregido(OFERTAS_DIR, DATOS_INICIALES, RESULTADO_OFERTAS):
             print("ERROR: No se pudieron procesar las ofertas")
             return False
             
-        print(f"\n✅ === PROCESO COMPLETADO CON ÉXITO ===")
+        print(f"\n✅ === PROCESO OPTIMIZADO COMPLETADO CON ÉXITO ===")
         print(f"Resultados guardados en: {RESULTADO_OFERTAS}")
         return True
         
     except Exception as e:
-        logger.exception(f"Error en el procesamiento de ofertas: {e}")
+        logger.exception(f"Error en el procesamiento optimizado de ofertas: {e}")
         print(f"❌ ERROR INESPERADO: {e}")
         return False
+
 
 def optimizar_con_pyomo():
     """
