@@ -22,7 +22,9 @@ from core.utils import (
     leer_excel_seguro,
     guardar_excel_seguro,
     solicitar_input_seguro,
-    fecha_a_texto
+    fecha_a_texto,
+    leer_excel_case_insensitive,
+    verificar_hoja_existe_case_insensitive
 )
 from core.indexadores import calcular_numerador, calcular_denominador, crear_proyeccion_precio_sicep
 
@@ -35,6 +37,7 @@ logger = logging.getLogger(__name__)
 def leer_excel_ultra_rapido(archivo_path, hojas_necesarias):
     """
     Lee múltiples hojas de Excel de una vez usando openpyxl optimizado.
+    VERSIÓN CORREGIDA: Ahora con soporte case-insensitive.
     Hasta 3x más rápido que pd.read_excel iterativo.
     """
     start_time = time.time()
@@ -42,10 +45,33 @@ def leer_excel_ultra_rapido(archivo_path, hojas_necesarias):
     
     try:
         workbook = load_workbook(archivo_path, read_only=True, data_only=True)
+        hojas_disponibles = workbook.sheetnames
         
-        for hoja_nombre in hojas_necesarias:
-            if hoja_nombre in workbook.sheetnames:
-                worksheet = workbook[hoja_nombre]
+        # NUEVO: Crear mapeo case-insensitive
+        mapeo_hojas = {}
+        for hoja_objetivo in hojas_necesarias:
+            hoja_objetivo_lower = hoja_objetivo.lower()
+            hoja_encontrada = None
+            
+            for hoja_disponible in hojas_disponibles:
+                if hoja_disponible.lower() == hoja_objetivo_lower:
+                    hoja_encontrada = hoja_disponible
+                    break
+            
+            if hoja_encontrada:
+                mapeo_hojas[hoja_objetivo] = hoja_encontrada
+                if hoja_encontrada != hoja_objetivo:
+                    print(f"✅ Mapeo case-insensitive: '{hoja_objetivo}' → '{hoja_encontrada}'")
+            else:
+                logger.warning(f"Hoja '{hoja_objetivo}' no encontrada en {archivo_path}")
+                logger.warning(f"Hojas disponibles: {hojas_disponibles}")
+                resultados[hoja_objetivo] = pd.DataFrame()
+                continue
+        
+        # Leer cada hoja mapeada
+        for hoja_objetivo, hoja_real in mapeo_hojas.items():
+            try:
+                worksheet = workbook[hoja_real]
                 
                 data_rows = []
                 headers = None
@@ -68,35 +94,62 @@ def leer_excel_ultra_rapido(archivo_path, hojas_necesarias):
                             row_padded = list(row) + [None] * (len(headers) - len(row))
                             data_truncated.append(row_padded)
                     
-                    resultados[hoja_nombre] = pd.DataFrame(data_truncated, columns=headers)
+                    resultados[hoja_objetivo] = pd.DataFrame(data_truncated, columns=headers)
                 else:
-                    resultados[hoja_nombre] = pd.DataFrame()
-            else:
-                logger.warning(f"Hoja '{hoja_nombre}' no encontrada en {archivo_path}")
-                resultados[hoja_nombre] = pd.DataFrame()
+                    resultados[hoja_objetivo] = pd.DataFrame()
+                    
+            except Exception as e:
+                logger.error(f"Error al leer hoja '{hoja_real}': {e}")
+                resultados[hoja_objetivo] = pd.DataFrame()
         
         workbook.close()
         
         end_time = time.time()
         tiempo_lectura = end_time - start_time
-        logger.debug(f"Lectura rápida de {len(hojas_necesarias)} hojas: {tiempo_lectura:.2f}s")
+        logger.debug(f"Lectura rápida case-insensitive de {len(hojas_necesarias)} hojas: {tiempo_lectura:.2f}s")
         
         return resultados
         
     except Exception as e:
-        logger.error(f"Error en lectura rápida de {archivo_path}: {e}")
+        logger.error(f"Error en lectura rápida case-insensitive de {archivo_path}: {e}")
         return leer_excel_fallback(archivo_path, hojas_necesarias)
 
 def leer_excel_fallback(archivo_path, hojas_necesarias):
-    """Método de respaldo usando pandas tradicional."""
+    """
+    Método de respaldo usando pandas tradicional.
+    VERSIÓN CORREGIDA: Ahora con soporte case-insensitive.
+    """
     resultados = {}
-    for hoja in hojas_necesarias:
-        try:
-            resultados[hoja] = pd.read_excel(archivo_path, sheet_name=hoja)
-        except:
+    
+    try:
+        excel_file = pd.ExcelFile(archivo_path)
+        hojas_disponibles = excel_file.sheet_names
+        
+        for hoja_objetivo in hojas_necesarias:
+            hoja_objetivo_lower = hoja_objetivo.lower()
+            hoja_encontrada = None
+            
+            # Buscar coincidencia case-insensitive
+            for hoja_disponible in hojas_disponibles:
+                if hoja_disponible.lower() == hoja_objetivo_lower:
+                    hoja_encontrada = hoja_disponible
+                    break
+            
+            if hoja_encontrada:
+                resultados[hoja_objetivo] = pd.read_excel(excel_file, sheet_name=hoja_encontrada)
+                if hoja_encontrada != hoja_objetivo:
+                    print(f"✅ Fallback case-insensitive: '{hoja_objetivo}' → '{hoja_encontrada}'")
+            else:
+                logger.warning(f"Hoja '{hoja_objetivo}' no encontrada en fallback")
+                resultados[hoja_objetivo] = pd.DataFrame()
+                
+    except Exception as e:
+        logger.error(f"Error en fallback case-insensitive: {e}")
+        # Último recurso: DataFrames vacíos
+        for hoja in hojas_necesarias:
             resultados[hoja] = pd.DataFrame()
+    
     return resultados
-
 # ============================================================================
 # CORREGIR CÁLCULO DE INDEXADORES - USAR LÓGICA ORIGINAL
 # ============================================================================
@@ -405,15 +458,15 @@ def procesar_precio_bolsa_rapido(datos_iniciales=DATOS_INICIALES):
 def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_iniciales=DATOS_INICIALES, 
                                         archivo_salida=RESULTADO_OFERTAS):
     """
-    Versión OPTIMIZADA CORREGIDA del procesamiento de ofertas.
+    Versión OPTIMIZADA CORREGIDA con CASE-INSENSITIVE del procesamiento de ofertas.
     MANTIENE la velocidad pero CORRIGE los cálculos para precisión exacta.
     """
-    print("🚀 INICIANDO PROCESAMIENTO OPTIMIZADO CORREGIDO")
+    print("🚀 INICIANDO PROCESAMIENTO OPTIMIZADO CORREGIDO (CASE-INSENSITIVE)")
     start_total = time.time()
     
-    logger.info(f"Procesando ofertas (OPTIMIZADO CORREGIDO) en {carpeta_ofertas}")
+    logger.info(f"Procesando ofertas (OPTIMIZADO CASE-INSENSITIVE) en {carpeta_ofertas}")
     
-    # Verificaciones iniciales
+    # Verificaciones iniciales (sin cambios)
     if not verificar_archivo_existe(datos_iniciales):
         logger.error(f"No se encontró el archivo de datos iniciales: {datos_iniciales}")
         return False
@@ -422,7 +475,7 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
         logger.error(f"No se encontró la carpeta de ofertas: {carpeta_ofertas}")
         return False
     
-    # Solicitar constante SICEP
+    # Solicitar constante SICEP (sin cambios)
     try:
         constante_sicep = solicitar_input_seguro(
             "Ingrese la constante para el cálculo del precio SICEP: ",
@@ -437,38 +490,54 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
         print(f"Usando constante SICEP predeterminada: {constante_sicep}")
     
     # =========================================================================
-    # FASE 1: PRE-CARGA OPTIMIZADA DE DATOS COMPARTIDOS
+    # FASE 1: PRE-CARGA OPTIMIZADA CON CASE-INSENSITIVE
     # =========================================================================
     
-    print("\n📊 FASE 1: Pre-cargando datos compartidos (corregido)...")
+    print("\n📊 FASE 1: Pre-cargando datos compartidos (case-insensitive)...")
     start_fase1 = time.time()
     
-    # Leer indexadores y proyecciones
-    indexadores_df = leer_excel_seguro(datos_iniciales, "INDEXADORES")
+    # MODIFICADO: Leer indexadores con case-insensitive
+    print("🔍 Buscando hoja INDEXADORES (case-insensitive)...")
+    existe_indexadores, nombre_real_indexadores = verificar_hoja_existe_case_insensitive(datos_iniciales, "INDEXADORES")
+    if not existe_indexadores:
+        logger.error("No se encontró la hoja INDEXADORES")
+        return False
+    else:
+        if nombre_real_indexadores != "INDEXADORES":
+            print(f"✅ Encontrada: 'INDEXADORES' → '{nombre_real_indexadores}'")
+    
+    indexadores_df = leer_excel_case_insensitive(datos_iniciales, "INDEXADORES")
     if indexadores_df.empty:
-        logger.error("No se encontró o está vacía la hoja INDEXADORES")
+        logger.error("La hoja INDEXADORES está vacía")
         return False
     
-    proyeccion_df = leer_excel_seguro(datos_iniciales, "PROYECCIÓN INDEXADORES")
-    if proyeccion_df.empty:
+    # MODIFICADO: Leer proyección con case-insensitive
+    print("🔍 Buscando hoja PROYECCIÓN INDEXADORES (case-insensitive)...")
+    existe_proyeccion, nombre_real_proyeccion = verificar_hoja_existe_case_insensitive(datos_iniciales, "PROYECCIÓN INDEXADORES")
+    if not existe_proyeccion:
         logger.warning("No se encontró PROYECCIÓN INDEXADORES, se creará automáticamente")
         from core.indexadores import crear_proyeccion_indexadores
         if not crear_proyeccion_indexadores(datos_iniciales, carpeta_ofertas):
             logger.error("No se pudo crear la proyección de indexadores")
             return False
-        proyeccion_df = leer_excel_seguro(datos_iniciales, "PROYECCIÓN INDEXADORES")
-        if proyeccion_df.empty:
-            logger.error("La proyección de indexadores está vacía")
-            return False
+        proyeccion_df = leer_excel_case_insensitive(datos_iniciales, "PROYECCIÓN INDEXADORES")
+    else:
+        if nombre_real_proyeccion != "PROYECCIÓN INDEXADORES":
+            print(f"✅ Encontrada: 'PROYECCIÓN INDEXADORES' → '{nombre_real_proyeccion}'")
+        proyeccion_df = leer_excel_case_insensitive(datos_iniciales, "PROYECCIÓN INDEXADORES")
     
-    # Convertir fechas UNA sola vez
+    if proyeccion_df.empty:
+        logger.error("La proyección de indexadores está vacía")
+        return False
+    
+    # Convertir fechas UNA sola vez (sin cambios)
     indexadores_df['fechaoperacion'] = pd.to_datetime(indexadores_df['fechaoperacion'], format="%d/%m/%Y").dt.date
     proyeccion_df['fechaoperacion'] = pd.to_datetime(proyeccion_df['fechaoperacion'], format="%d/%m/%Y").dt.date
     
-    # Pre-computar indexadores corregidos
+    # Pre-computar indexadores corregidos (sin cambios)
     indexadores_completo_df = precomputar_indexadores_corregido(indexadores_df, proyeccion_df)
     
-    # Procesar precios SICEP y BOLSA (optimizado)
+    # Procesar precios SICEP y BOLSA (sin cambios)
     sicep_dict = procesar_precio_sicep_rapido(datos_iniciales)
     if sicep_dict is None:
         logger.error("No se pudo procesar PRECIO SICEP")
@@ -483,13 +552,14 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
     print(f"✅ FASE 1 completada en {end_fase1 - start_fase1:.1f} segundos")
     
     # =========================================================================
-    # FASE 2: PROCESAMIENTO OPTIMIZADO CON CÁLCULOS CORREGIDOS
+    # FASE 2: PROCESAMIENTO OPTIMIZADO - SIN CAMBIOS EN LA LÓGICA PRINCIPAL
+    # La lectura de ofertas ya usa leer_excel_ultra_rapido() que ahora es case-insensitive
     # =========================================================================
     
-    print("\n🔄 FASE 2: Procesamiento optimizado con cálculos corregidos...")
+    print("\n🔄 FASE 2: Procesamiento optimizado case-insensitive...")
     start_fase2 = time.time()
     
-    # Buscar archivos
+    # Buscar archivos (sin cambios)
     archivos = [f for f in os.listdir(carpeta_ofertas) 
                if f.endswith('.xlsx') and not f.startswith('~$')]
     
@@ -497,18 +567,18 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
         logger.error(f"No se encontraron archivos en {carpeta_ofertas}")
         return False
     
-    print(f"📂 Procesando {len(archivos)} ofertas con cálculos corregidos:")
+    print(f"📂 Procesando {len(archivos)} ofertas con lectura case-insensitive:")
     
-    # Inicializar contenedores de resultados
+    # Inicializar contenedores de resultados (sin cambios)
     tabla_maestra = []
     cantidades_precios = []
     
-    # Contadores de rendimiento
+    # Contadores de rendimiento (sin cambios)
     ofertas_exitosas = 0
     ofertas_con_errores = 0
     total_registros = 0
     
-    # Procesar cada oferta
+    # Procesar cada oferta (sin cambios en la lógica, solo usa las funciones actualizadas)
     for i, archivo in enumerate(archivos, 1):
         codigo_oferta = os.path.splitext(archivo)[0]
         ruta_archivo = os.path.join(carpeta_ofertas, archivo)
@@ -517,7 +587,9 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
         start_oferta = time.time()
         
         try:
-            # Lectura optimizada de archivo
+            # AQUÍ ES DONDE SE USA LA FUNCIÓN CASE-INSENSITIVE
+            # leer_excel_ultra_rapido() ahora es case-insensitive automáticamente
+            print(f"📖 Leyendo hojas (case-insensitive): INDEXADOR, cantidad, precios")
             hojas_data = leer_excel_ultra_rapido(ruta_archivo, ["INDEXADOR", "cantidad", "precios"])
             
             indexador_df = hojas_data.get("INDEXADOR", pd.DataFrame())
@@ -530,6 +602,7 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
                 print(f"❌ {codigo_oferta}: Error en lectura de hojas")
                 continue
             
+            # EL RESTO DE LA FUNCIÓN PERMANECE IGUAL
             # Normalización optimizada
             precios_df = normalizar_columnas_precios_rapido(precios_df, codigo_oferta)
             cantidad_df = normalizar_columnas_cantidad_rapido(cantidad_df, codigo_oferta)
@@ -574,9 +647,8 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
                 ofertas_con_errores += 1
                 continue
             
-            # ===================================================================
-            # PROCESAMIENTO CON CÁLCULOS CORREGIDOS
-            # ===================================================================
+            # === TODO EL RESTO DE LA LÓGICA DE PROCESAMIENTO PERMANECE IGUAL ===
+            # (procesamiento de horas, cálculos, evaluación, etc.)
             
             es_fncer = indexador_data.get("FNCER", "NO") == "SI"
             registros_oferta = 0
@@ -608,11 +680,7 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
                     precio = precio_row.get(f"H{hora}", None)
                     
                     if cantidad > 0 and precio is not None and pd.notna(precio):
-                        # ===================================================
-                        # CÁLCULO CORREGIDO DE INDEXACIÓN (LÓGICA ORIGINAL)
-                        # ===================================================
-                        
-                        # Calcular numerador usando función corregida
+                        # CÁLCULO CORREGIDO DE INDEXACIÓN
                         numerador_valor = calcular_numerador_rapido(
                             fecha,
                             indexador_data["INDEXADOR"],
@@ -620,7 +688,6 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
                             indexadores_completo_df
                         )
                         
-                        # Calcular denominador usando función corregida
                         denominador_valor = calcular_denominador_rapido(
                             indexador_data["FECHA BASE"],
                             indexador_data["INDEXADOR"],
@@ -628,7 +695,7 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
                             indexadores_completo_df
                         )
                         
-                        # Calcular precio indexado (LÓGICA EXACTA)
+                        # Calcular precio indexado
                         if (
                             precio is not None
                             and numerador_valor is not None
@@ -639,10 +706,7 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
                         else:
                             precio_indexado = None
                         
-                        # ===================================================
-                        # EVALUACIÓN CORREGIDA (LÓGICA ORIGINAL)
-                        # ===================================================
-                        
+                        # EVALUACIÓN CORREGIDA
                         evaluacion = evaluar_oferta_corregido(
                             precio_indexado,
                             precio_sicep_val,
@@ -652,10 +716,7 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
                             es_oferta_fncer=es_fncer
                         )
                         
-                        # ===================================================
-                        # CREAR REGISTRO CON CAMPOS EXACTOS (COMO ORIGINAL)
-                        # ===================================================
-                        
+                        # CREAR REGISTRO
                         registro = {
                             "CÓDIGO OFERTA": codigo_oferta,
                             "FECHA": fecha,
@@ -666,8 +727,8 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
                             "NUMERADOR": indexador_data["NUMERADOR"],
                             "DENOMINADOR": indexador_data["DENOMINADOR"],
                             "FECHA BASE": indexador_data["FECHA BASE"],
-                            "NUMERADOR #": numerador_valor,  # VALOR EXACTO
-                            "DENOMINADOR #": denominador_valor,  # VALOR EXACTO
+                            "NUMERADOR #": numerador_valor,
+                            "DENOMINADOR #": denominador_valor,
                             "PRECIO INDEXADO": precio_indexado,
                             "FNCER": indexador_data.get("FNCER", "NO"),
                             "PRECIO SICEP": precio_fncer_val if es_fncer and precio_fncer_val else precio_sicep_val,
@@ -700,7 +761,7 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
     print(f"\n✅ FASE 2 completada en {end_fase2 - start_fase2:.1f} segundos")
     
     # =========================================================================
-    # FASE 3: GUARDAR RESULTADOS OPTIMIZADO
+    # FASE 3: GUARDAR RESULTADOS (sin cambios)
     # =========================================================================
     
     print("\n💾 FASE 3: Guardando resultados...")
@@ -728,23 +789,18 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
         end_fase3 = time.time()
         print(f"✅ FASE 3 completada en {end_fase3 - start_fase3:.1f} segundos")
         
-        # =====================================================================
-        # ESTADÍSTICAS FINALES OPTIMIZADAS
-        # =====================================================================
-        
+        # ESTADÍSTICAS FINALES
         end_total = time.time()
         tiempo_total = end_total - start_total
         
-        print(f"\n🎉 PROCESAMIENTO OPTIMIZADO CORREGIDO COMPLETADO:")
-        print(f"   ⚡ Tiempo total: {tiempo_total:.1f} segundos ({tiempo_total/60:.1f} minutos)")
-        print(f"   🚀 Mejora estimada: {58*60/tiempo_total:.1f}x más rápido que versión original")
+        print(f"\n🎉 PROCESAMIENTO OPTIMIZADO CASE-INSENSITIVE COMPLETADO:")
+        print(f"   ⚡ Tiempo total: {tiempo_total:.1f} segundos")
         print(f"   📊 Ofertas exitosas: {ofertas_exitosas}/{len(archivos)}")
         print(f"   ❌ Ofertas con errores: {ofertas_con_errores}")
         print(f"   📈 Total registros: {total_registros:,}")
         print(f"   ⚡ Velocidad: {total_registros/tiempo_total:.0f} registros/segundo")
         print(f"   💾 Archivo guardado: {archivo_salida}")
-        print(f"   ✅ CÁLCULOS CORREGIDOS: Numerador/Denominador exactos")
-        print(f"   ✅ EVALUACIÓN CORREGIDA: Lógica original restaurada")
+        print(f"   ✅ LECTURA CASE-INSENSITIVE: Hojas con mayús/minús")
         
         # Desglose de evaluaciones
         if cantidades_precios_df is not None and not cantidades_precios_df.empty:
@@ -755,15 +811,7 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
                 percentage = (count / len(cantidades_precios_df)) * 100
                 print(f"   {status}: {count:,} registros ({percentage:.1f}%)")
         
-        # Verificación de precisión
-        print(f"\n🔍 VERIFICACIÓN DE PRECISIÓN:")
-        muestra = cantidades_precios_df.head(3)
-        for _, row in muestra.iterrows():
-            print(f"   📋 {row['CÓDIGO OFERTA']} H{row['Atributo']}: Precio={row['PRECIO']:.4f}, "
-                  f"Numerador={row['NUMERADOR #']:.4f}, Denominador={row['DENOMINADOR #']:.4f}, "
-                  f"P.Indexado={row['PRECIO INDEXADO']:.4f}, Eval={row['EVALUACIÓN']}")
-        
-        logger.info(f"Procesamiento optimizado corregido completado en {tiempo_total:.1f}s")
+        logger.info(f"Procesamiento optimizado case-insensitive completado en {tiempo_total:.1f}s")
         return True
         
     except Exception as e:

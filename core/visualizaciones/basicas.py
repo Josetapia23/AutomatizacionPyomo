@@ -22,13 +22,7 @@ logger = logging.getLogger(__name__)
 def crear_grafica_principal_energia_asignada(resultados_dict):
     """
     Crea la gráfica principal de ENERGÍA ASIGNADA Y NO ASIGNADA por horas.
-    CORREGIDO: Usa SOLO hojas _NO_COMPRADA para ENA (como hace el cliente).
-    
-    Args:
-        resultados_dict (dict): Diccionario con los resultados de la optimización
-        
-    Returns:
-        plotly.graph_objects.Figure: Figura de Plotly con la gráfica
+    CORREGIDO: Solo cambia etiqueta a GW-TOTAL, mantiene cálculos originales
     """
     logger.info("Creando gráfica principal de energía asignada y no asignada")
     
@@ -46,9 +40,8 @@ def crear_grafica_principal_energia_asignada(resultados_dict):
             # Identificar tipo de hoja
             es_demanda_asignada = "DEMANDA ASIGNADA" in clave and "_COMPRAR" in clave
             es_energia_no_asignada = "DEMANDA ASIGNADA" in clave and "_NO_COMPRADA" in clave
-            # ❌ ELIMINADO: es_demanda_faltante = clave == "DEMANDA_FALTANTE"
             
-            # ✅ SOLO usar _COMPRAR y _NO_COMPRADA (como hace el cliente)
+            # Usar SOLO _COMPRAR y _NO_COMPRADA (como hace el cliente)
             if es_demanda_asignada or es_energia_no_asignada:
                 # Procesar cada fila del DataFrame
                 for _, row in df.iterrows():
@@ -56,6 +49,7 @@ def crear_grafica_principal_energia_asignada(resultados_dict):
                     for hora in range(1, 25):
                         if hora in row and pd.notna(row[hora]):
                             valor_kwh = float(row[hora])
+                            # MANTENER CÁLCULO ORIGINAL (convert_to_gwh)
                             valor_gwh = convert_to_gwh(valor_kwh)
                             
                             if es_demanda_asignada:
@@ -63,10 +57,10 @@ def crear_grafica_principal_energia_asignada(resultados_dict):
                             elif es_energia_no_asignada:
                                 gwh_no_asignados[hora-1] += valor_gwh
         
-        # Logs para verificar los nuevos valores
-        logger.info(f"CORREGIDO ENA - GWh Asignados hora 1: {gwh_asignados[0]:.2f}")
-        logger.info(f"CORREGIDO ENA - GWh No Asignados hora 1: {gwh_no_asignados[0]:.2f}")
-        logger.info(f"CORREGIDO ENA - Total hora 1: {gwh_asignados[0] + gwh_no_asignados[0]:.2f}")
+        # Logs para verificar que los valores son correctos
+        logger.info(f"GWh Asignados hora 1: {gwh_asignados[0]:.2f}")
+        logger.info(f"GWh No Asignados hora 1: {gwh_no_asignados[0]:.2f}")
+        logger.info(f"Total hora 1: {gwh_asignados[0] + gwh_no_asignados[0]:.2f}")
         
         # Calcular porcentajes
         porcentajes_no_asignado = []
@@ -79,12 +73,7 @@ def crear_grafica_principal_energia_asignada(resultados_dict):
             porcentajes_no_asignado.append(porcentaje)
         
         # Log del porcentaje para verificar
-        logger.info(f"CORREGIDO ENA - % No Asignado hora 1: {porcentajes_no_asignado[0]:.2f}%")
-        
-        # Verificar rango de variación
-        porcentaje_min = min(porcentajes_no_asignado) if porcentajes_no_asignado else 0
-        porcentaje_max = max(porcentajes_no_asignado) if porcentajes_no_asignado else 0
-        logger.info(f"CORREGIDO ENA - Variación %: {porcentaje_min:.2f}% - {porcentaje_max:.2f}%")
+        logger.info(f"% No Asignado hora 1: {porcentajes_no_asignado[0]:.2f}%")
         
         # Crear la figura con subplots para eje secundario
         fig = make_subplots(
@@ -97,7 +86,7 @@ def crear_grafica_principal_energia_asignada(resultados_dict):
             go.Bar(
                 x=horas,
                 y=gwh_asignados,
-                name="GWh Asignados",
+                name="GW Asignados",  # Solo cambio de nombre para consistencia
                 marker_color="#1f4e79",  # Azul oscuro
                 text=[f"{val:.2f}" for val in gwh_asignados],
                 textposition="inside",
@@ -112,7 +101,7 @@ def crear_grafica_principal_energia_asignada(resultados_dict):
             go.Bar(
                 x=horas,
                 y=gwh_no_asignados,
-                name="GWh No Asignado",
+                name="GW No Asignado",  # Solo cambio de nombre para consistencia
                 marker_color="#87CEEB",  # Azul claro como cliente
                 text=[f"{val:.2f}" for val in gwh_no_asignados],
                 textposition="inside",
@@ -148,9 +137,9 @@ def crear_grafica_principal_energia_asignada(resultados_dict):
             secondary_y=True
         )
         
-        # Configurar eje Y principal (GWh)
+        # SOLO CAMBIO DE ETIQUETA: Configurar eje Y principal
         fig.update_yaxes(
-            title_text="GWh",
+            title_text="GW-TOTAL",  # ÚNICO CAMBIO: Era "GWh", ahora "GW-TOTAL"
             title_font=dict(size=14, color="#1f4e79"),
             tickfont=dict(size=12),
             showgrid=True,
@@ -159,7 +148,8 @@ def crear_grafica_principal_energia_asignada(resultados_dict):
         )
         
         # Configurar eje Y secundario (%) - RANGO AJUSTADO
-        # Si el rango es muy pequeño, expandirlo para mostrar variación
+        porcentaje_min = min(porcentajes_no_asignado) if porcentajes_no_asignado else 0
+        porcentaje_max = max(porcentajes_no_asignado) if porcentajes_no_asignado else 0
         rango_porcentaje = porcentaje_max - porcentaje_min
         if rango_porcentaje < 1:
             centro = (porcentaje_max + porcentaje_min) / 2
@@ -229,28 +219,21 @@ def crear_grafica_principal_energia_asignada(resultados_dict):
             borderwidth=1
         )
         
-        logger.info("Gráfica principal creada exitosamente (usando ENA de hojas _NO_COMPRADA)")
+        logger.info("Gráfica principal creada exitosamente con etiqueta GW-TOTAL")
         return fig
         
     except Exception as e:
         logger.error(f"Error al crear la gráfica principal: {e}")
         raise
-
+     
 def crear_grafica_resumen_general(resultados_dict):
     """
-    Crea la gráfica de resumen general solicitada por el cliente:
-    - Energía adjudicada total
-    - Precio ponderado de adjudicación (indexado y no indexado)
-    - Precio máximo adjudicado (indexado y no indexado) con agente
-    - Precio mínimo adjudicado (indexado y no indexado) con agente
-    
-    Args:
-        resultados_dict (dict): Diccionario con los resultados
-        
-    Returns:
-        plotly.graph_objects.Figure: Figura con el resumen general
+    Crea la gráfica de resumen general MEJORADA:
+    - Mejor legibilidad de números
+    - Espaciado adecuado
+    - Verificación de cantidades
     """
-    logger.info("Creando gráfica de resumen general")
+    logger.info("Creando gráfica de resumen general mejorada")
     
     try:
         # Verificar si existe el resumen ejecutivo
@@ -268,8 +251,13 @@ def crear_grafica_resumen_general(resultados_dict):
         costo_total_no_indexado = 0
         
         # Diccionarios para almacenar info de agentes
-        agentes_precios_indexados = {}  # {precio: agente}
-        agentes_precios_no_indexados = {}  # {precio: agente}
+        agentes_precios_indexados = {}
+        agentes_precios_no_indexados = {}
+        
+        # DEBUG: Verificar estructura del resumen
+        print(f"🔍 DEBUG - Columnas en resumen ejecutivo: {resumen_df.columns.tolist()}")
+        print(f"🔍 DEBUG - Primeras filas del resumen:")
+        print(resumen_df.head())
         
         # Procesar cada fila del resumen ejecutivo
         for _, row in resumen_df.iterrows():
@@ -283,6 +271,9 @@ def crear_grafica_resumen_general(resultados_dict):
                         # Extraer nombre del agente/oferta
                         agente = col.replace(" CANTIDAD (KWh)", "")
                         
+                        # DEBUG: Mostrar datos por agente
+                        print(f"🔍 DEBUG - Agente: {agente}, Cantidad: {cantidad:,.0f} kWh")
+                        
                         # Buscar precios correspondientes
                         precio_indexado_col = f"{agente} PRECIO INDEXADO ($/KWh)"
                         precio_no_indexado_col = f"{agente} PRECIO ($/KWh)"
@@ -294,6 +285,7 @@ def crear_grafica_resumen_general(resultados_dict):
                                 precios_indexados.append(precio_indexado)
                                 agentes_precios_indexados[precio_indexado] = agente
                                 costo_total_indexado += cantidad * precio_indexado
+                                print(f"   💰 Precio Indexado: ${precio_indexado:.4f}")
                         
                         # Procesar precio no indexado
                         if precio_no_indexado_col in resumen_df.columns:
@@ -302,177 +294,187 @@ def crear_grafica_resumen_general(resultados_dict):
                                 precios_no_indexados.append(precio_no_indexado)
                                 agentes_precios_no_indexados[precio_no_indexado] = agente
                                 costo_total_no_indexado += cantidad * precio_no_indexado
+                                print(f"   💲 Precio No Indexado: ${precio_no_indexado:.4f}")
         
-        # Calcular métricas
-        energia_gwh = convert_to_gwh(energia_total)
+        # DEBUG: Verificar totales
+        print(f"🔍 DEBUG - Energía total: {energia_total:,.0f} kWh")
+        print(f"🔍 DEBUG - Energía total en GW: {energia_total / 1_000_000:.2f} GW")
         
-        # Precios ponderados
-        precio_ponderado_indexado = costo_total_indexado / energia_total if energia_total > 0 else 0
-        precio_ponderado_no_indexado = costo_total_no_indexado / energia_total if energia_total > 0 else 0
+        # CORREGIDO: Convertir energía a GW-TOTAL y redondear a 2 decimales
+        energia_gw_total = round(energia_total / 1_000_000, 2)
+        
+        # Precios ponderados (redondeados a 4 decimales)
+        precio_ponderado_indexado = round(costo_total_indexado / energia_total, 4) if energia_total > 0 else 0
+        precio_ponderado_no_indexado = round(costo_total_no_indexado / energia_total, 4) if energia_total > 0 else 0
         
         # Precios mínimos y máximos con agentes
         if precios_indexados:
-            precio_min_indexado = min(precios_indexados)
-            precio_max_indexado = max(precios_indexados)
-            agente_min_indexado = agentes_precios_indexados.get(precio_min_indexado, "N/A")
-            agente_max_indexado = agentes_precios_indexados.get(precio_max_indexado, "N/A")
+            precio_min_indexado = round(min(precios_indexados), 4)
+            precio_max_indexado = round(max(precios_indexados), 4)
+            agente_min_indexado = agentes_precios_indexados.get(min(precios_indexados), "N/A")
+            agente_max_indexado = agentes_precios_indexados.get(max(precios_indexados), "N/A")
         else:
             precio_min_indexado = precio_max_indexado = 0
             agente_min_indexado = agente_max_indexado = "N/A"
         
         if precios_no_indexados:
-            precio_min_no_indexado = min(precios_no_indexados)
-            precio_max_no_indexado = max(precios_no_indexados)
-            agente_min_no_indexado = agentes_precios_no_indexados.get(precio_min_no_indexado, "N/A")
-            agente_max_no_indexado = agentes_precios_no_indexados.get(precio_max_no_indexado, "N/A")
+            precio_min_no_indexado = round(min(precios_no_indexados), 4)
+            precio_max_no_indexado = round(max(precios_no_indexados), 4)
+            agente_min_no_indexado = agentes_precios_no_indexados.get(min(precios_no_indexados), "N/A")
+            agente_max_no_indexado = agentes_precios_no_indexados.get(max(precios_no_indexados), "N/A")
         else:
             precio_min_no_indexado = precio_max_no_indexado = 0
             agente_min_no_indexado = agente_max_no_indexado = "N/A"
         
-        # Crear gráfica de barras agrupadas
-        import plotly.graph_objects as go
-        from plotly.subplots import make_subplots
-        
+        # MEJORADO: Crear gráfica con mejor espaciado
         fig = make_subplots(
             rows=2, cols=3,
             subplot_titles=[
-                "Energía Total (GWh)", 
+                "Energía Total (GW-TOTAL)", 
                 "Precio Ponderado ($/kWh)", 
-                "Precio Mínimo ($/kWh)",
-                "", 
-                "", 
-                "Precio Máximo ($/kWh)"
+                "Precios Mínimos y Máximos ($/kWh)"
             ],
             specs=[[{"type": "bar"}, {"type": "bar"}, {"type": "bar"}],
                    [{"colspan": 3, "type": "table"}, None, None]],
-            vertical_spacing=0.15,
-            row_heights=[0.7, 0.3]
+            vertical_spacing=0.2,  # AUMENTADO para más espacio
+            row_heights=[0.65, 0.35]  # AJUSTADO para más espacio en tabla
         )
         
-        # 1. Energía Total (una sola barra)
+        # Definir colores consistentes
+        COLOR_INDEXADO = '#2E86C1'      # Azul para indexado
+        COLOR_NO_INDEXADO = '#E74C3C'   # Rojo para no indexado
+        
+        # 1. MEJORADO: Energía Total con mejor formato
         fig.add_trace(
             go.Bar(
                 x=["Energía Total"],
-                y=[energia_gwh],
+                y=[energia_gw_total],
                 name="Energía",
                 marker_color='#1f4e79',
-                text=[f"{energia_gwh:.2f}"],
+                text=[f"{energia_gw_total:.2f}<br>GW-TOTAL"],  # MEJORADO: Texto en 2 líneas
                 textposition="outside",
+                textfont=dict(size=12, color='#1f4e79'),  # MEJORADO: Más grande y colorido
                 showlegend=False
             ),
             row=1, col=1
         )
         
-        # 2. Precios Ponderados (dos barras: indexado vs no indexado)
+        # 2. MEJORADO: Precios Ponderados con mejor espaciado
         fig.add_trace(
             go.Bar(
                 x=["Indexado", "No Indexado"],
                 y=[precio_ponderado_indexado, precio_ponderado_no_indexado],
                 name="Precio Ponderado",
-                marker_color=['#2ecc71', '#e74c3c'],
-                text=[f"{precio_ponderado_indexado:.4f}", f"{precio_ponderado_no_indexado:.4f}"],
+                marker_color=[COLOR_INDEXADO, COLOR_NO_INDEXADO],
+                text=[f"${precio_ponderado_indexado:.4f}", f"${precio_ponderado_no_indexado:.4f}"],
                 textposition="outside",
+                textfont=dict(size=11),  # MEJORADO: Tamaño ajustado
                 showlegend=False
             ),
             row=1, col=2
         )
         
-        # 3. Precios Mínimos (dos barras: indexado vs no indexado)
+        # 3. MEJORADO: Precios Min/Max con mejor legibilidad
         fig.add_trace(
             go.Bar(
-                x=["Indexado", "No Indexado"],
-                y=[precio_min_indexado, precio_min_no_indexado],
-                name="Precio Mínimo",
-                marker_color=['#3498db', '#9b59b6'],
-                text=[f"{precio_min_indexado:.4f}", f"{precio_min_no_indexado:.4f}"],
+                x=["Mín<br>Indexado", "Mín<br>No Index", "Máx<br>Indexado", "Máx<br>No Index"],  # MEJORADO: Etiquetas en 2 líneas
+                y=[precio_min_indexado, precio_min_no_indexado, precio_max_indexado, precio_max_no_indexado],
+                name="Precios Min/Max",
+                marker_color=[COLOR_INDEXADO, COLOR_NO_INDEXADO, COLOR_INDEXADO, COLOR_NO_INDEXADO],
+                text=[f"${precio_min_indexado:.2f}", f"${precio_min_no_indexado:.2f}",  # MEJORADO: Solo 2 decimales para mejor legibilidad
+                      f"${precio_max_indexado:.2f}", f"${precio_max_no_indexado:.2f}"],
                 textposition="outside",
+                textfont=dict(size=10),  # MEJORADO: Tamaño más pequeño pero legible
                 showlegend=False
             ),
             row=1, col=3
         )
         
-        # 4. Precios Máximos (se añaden al subplot 3 para comparación)
-        fig.add_trace(
-            go.Bar(
-                x=["Indexado", "No Indexado"],
-                y=[precio_max_indexado, precio_max_no_indexado],
-                name="Precio Máximo",
-                marker_color=['#f39c12', '#e67e22'],
-                text=[f"{precio_max_indexado:.4f}", f"{precio_max_no_indexado:.4f}"],
-                textposition="outside",
-                showlegend=False,
-                yaxis="y4"
-            ),
-            row=1, col=3
-        )
-        
-        # 5. Tabla con información de agentes
+        # 4. MEJORADA: Tabla con mejor formato
         fig.add_trace(
             go.Table(
                 header=dict(
-                    values=["<b>Métrica</b>", "<b>Precio Indexado</b>", "<b>Agente</b>", 
-                           "<b>Precio No Indexado</b>", "<b>Agente</b>"],
+                    values=["<b>Agente</b>", "<b>Métrica</b>", "<b>Precio Indexado</b>", "<b>Precio No Indexado</b>"],
                     fill_color='#1f4e79',
-                    font=dict(color='white', size=12),
-                    align="center"
+                    font=dict(color='white', size=13),  # MEJORADO: Más grande
+                    align="center",
+                    height=35  # MEJORADO: Más alto
                 ),
                 cells=dict(
                     values=[
+                        [agente_min_indexado, agente_max_indexado],
                         ["Precio Mínimo", "Precio Máximo"],
                         [f"${precio_min_indexado:.4f}", f"${precio_max_indexado:.4f}"],
-                        [agente_min_indexado, agente_max_indexado],
-                        [f"${precio_min_no_indexado:.4f}", f"${precio_max_no_indexado:.4f}"],
-                        [agente_min_no_indexado, agente_max_no_indexado]
+                        [f"${precio_min_no_indexado:.4f}", f"${precio_max_no_indexado:.4f}"]
                     ],
                     fill_color=[['#f8f9fa', '#e9ecef'] * 2],
-                    font=dict(size=11),
+                    font=dict(size=12),  # MEJORADO: Más grande
                     align="center",
-                    height=25
+                    height=30  # MEJORADO: Más alto
                 )
             ),
             row=2, col=1
         )
         
-        # Actualizar layout
+        # MEJORADO: Layout con más espacio
         fig.update_layout(
             title={
-                'text': "RESUMEN GENERAL DE ADJUDICACIÓN<br><sub>Comparación: Precios Indexados vs No Indexados</sub>",
+                'text': "RESUMEN GENERAL DE ADJUDICACIÓN<br><sub>Energía en GW-TOTAL | Precios Indexados vs No Indexados</sub>",
                 'x': 0.5,
                 'xanchor': 'center',
-                'font': {'size': 18, 'color': '#1f4e79'}
+                'font': {'size': 16, 'color': '#1f4e79'}  # MEJORADO: Tamaño ajustado
             },
-            width=1200,
-            height=700,
+            width=1300,  # MEJORADO: Más ancho
+            height=750,  # MEJORADO: Más alto
             plot_bgcolor='white',
             paper_bgcolor='white',
             showlegend=False,
-            margin=dict(l=60, r=60, t=120, b=100)
+            margin=dict(l=80, r=80, t=130, b=150)  # MEJORADO: Más márgenes
         )
         
-        # Actualizar ejes para mejor visualización
-        fig.update_yaxes(showgrid=True, gridcolor="lightgray", row=1, col=1)
-        fig.update_yaxes(showgrid=True, gridcolor="lightgray", row=1, col=2)
-        fig.update_yaxes(showgrid=True, gridcolor="lightgray", row=1, col=3)
+        # MEJORADO: Ajustar rangos de ejes para evitar cortes
+        fig.update_yaxes(
+            showgrid=True, 
+            gridcolor="lightgray", 
+            row=1, col=1,
+            range=[0, energia_gw_total * 1.2]  # MEJORADO: 20% más espacio arriba
+        )
+        fig.update_yaxes(
+            showgrid=True, 
+            gridcolor="lightgray", 
+            row=1, col=2,
+            range=[0, max(precio_ponderado_indexado, precio_ponderado_no_indexado) * 1.2]
+        )
+        fig.update_yaxes(
+            showgrid=True, 
+            gridcolor="lightgray", 
+            row=1, col=3,
+            range=[0, max(precio_max_indexado, precio_max_no_indexado) * 1.15]  # MEJORADO: Más espacio
+        )
         
-        # Añadir anotaciones explicativas
+        # MEJORADO: Leyenda más clara
         fig.add_annotation(
             x=0.5, y=-0.15,
             xref="paper", yref="paper",
-            text="<b>Nota:</b> Indexado = Precio ajustado por indexadores | No Indexado = Precio original de oferta",
+            text=f"<b>LEYENDA:</b> " +
+                 f"<span style='color:{COLOR_INDEXADO}; font-size:14px'>●</span> Indexado | " +
+                 f"<span style='color:{COLOR_NO_INDEXADO}; font-size:14px'>●</span> No Indexado<br>" +
+                 f"<i>Energía: {energia_gw_total:.2f} GW-TOTAL | Precios: $/kWh</i>",
             showarrow=False,
-            font=dict(size=10, color="#666666"),
-            bgcolor="rgba(255,255,255,0.8)",
-            bordercolor="#cccccc",
-            borderwidth=1
+            font=dict(size=12, color="#1f4e79"),
+            bgcolor="rgba(240,248,255,0.9)",
+            bordercolor="#1f4e79",
+            borderwidth=1,
+            align="center"
         )
         
-        logger.info("Gráfica de resumen general creada exitosamente con precios indexados/no indexados y agentes")
+        logger.info("Gráfica de resumen general mejorada creada exitosamente")
         return fig
         
     except Exception as e:
         logger.error(f"Error al crear gráfica de resumen general: {e}")
         return None
-
+    
 def crear_grafica_torta_adjudicacion(resultados_dict):
     """
     Crea gráfica de torta para mostrar % adjudicado respecto al total ofertado.

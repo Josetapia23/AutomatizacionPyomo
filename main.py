@@ -323,14 +323,16 @@ def ejecutar_flujo_completo():
         return False
 
 def mostrar_menu():
-    """Muestra el menú principal de la aplicación."""
+    """
+    Muestra el menú principal de la aplicación con las opciones actualizadas.
+    """
     print("\n===== SISTEMA DE OPTIMIZACIÓN ENERGÉTICA =====")
     print("1. Ejecutar flujo completo")
     print("2. Crear/actualizar proyección de indexadores")
     print("3. Crear/actualizar proyección de precio SICEP")
     print("4. Procesar ofertas (solo tabla maestra y precios)")
     print("5. Optimizar asignación de ofertas con Pyomo")
-    print("6. Generar solo visualizaciones")  # Nueva opción
+    print("6. Generar visualizaciones (automático)")  # Opción modificada
     print("7. Ver configuración actual")
     print("0. Salir")
     print("=============================================")
@@ -384,8 +386,8 @@ def procesar_ofertas_solo_tabla():
 
 def optimizar_con_pyomo():
     """
-    Ejecuta el proceso de optimización con Pyomo y exporta los resultados
-    en el formato específico requerido, incluyendo visualizaciones.
+    Ejecuta SOLO el proceso de optimización con Pyomo y exporta los resultados
+    en el formato específico requerido, SIN generar visualizaciones.
     
     Returns:
         bool: True si el proceso fue exitoso, False en caso contrario
@@ -409,6 +411,8 @@ def optimizar_con_pyomo():
             print("ERROR: No hay ofertas válidas para optimización")
             return False
         
+        print(f"✅ Ofertas cargadas: {len(ofertas_df)} válidas de {len(ofertas_df_completas)} totales")
+        
         # Construir modelo de optimización
         print("\n=== CONSTRUYENDO MODELO DE OPTIMIZACIÓN ===")
         model = construir_modelo(demanda_df, ofertas_df)
@@ -420,10 +424,18 @@ def optimizar_con_pyomo():
         if result.solver.termination_condition != 'optimal':
             print(f"ADVERTENCIA: El solver terminó con condición: {result.solver.termination_condition}")
             print("Es posible que no se haya encontrado una solución óptima.")
+        else:
+            print("✅ Solución óptima encontrada")
         
         # Extraer resultados en formato mejorado
         print("\n=== EXTRAYENDO RESULTADOS ===")
         resultados_dict = extraer_resultados(model, ofertas_df_completas)
+        
+        if not resultados_dict:
+            print("ERROR: No se pudieron extraer resultados del modelo")
+            return False
+        
+        print(f"✅ Resultados extraídos: {len(resultados_dict)} hojas de datos")
         
         # Exportar resultados en el formato específico
         print("\n=== EXPORTANDO RESULTADOS ===")
@@ -431,42 +443,197 @@ def optimizar_con_pyomo():
             print("ERROR: No se pudieron exportar los resultados")
             return False
         
-        # Generar visualizaciones
-        print("\n=== GENERANDO VISUALIZACIONES ===")
-        if VISUALIZACIONES_DISPONIBLES:
-            try:
-                if generar_reporte_completo(resultados_dict, ofertas_df, RESULTADO_OFERTAS):
-                    print("✓ Visualizaciones generadas exitosamente")
-                else:
-                    print("⚠ No se pudieron generar todas las visualizaciones")
-            except Exception as e:
-                print(f"⚠ Error al generar visualizaciones: {e}")
-        else:
-            print("⚠ Módulo de visualizaciones no disponible")
+        print(f"✅ Resultados exportados a: {RESULTADO_OFERTAS}")
         
-        # Calcular estadísticas corregidas
-        print("\n=== CALCULANDO ESTADÍSTICAS ===")
+        # Calcular estadísticas básicas
+        print("\n=== CALCULANDO ESTADÍSTICAS BÁSICAS ===")
         try:
             filas_stats = calcular_estadisticas_correctas(resultados_dict)
             
             if filas_stats:
                 stats_df = pd.DataFrame(filas_stats)
                 stats_df.to_excel(ESTADISTICAS_OFERTAS, index=False)
-                print(f"✓ Estadísticas guardadas en {ESTADISTICAS_OFERTAS}")
+                print(f"✅ Estadísticas guardadas en: {ESTADISTICAS_OFERTAS}")
+                
+                # Mostrar resumen en consola
+                total_energia = sum(s["TOTAL ASIGNADO (kWh)"] for s in filas_stats if s["TIPO"] == "OFERTA")
+                total_costo = sum(s["COSTO TOTAL"] for s in filas_stats if s["TIPO"] == "OFERTA")
+                precio_promedio = total_costo / total_energia if total_energia > 0 else 0
+                
+                print(f"\n📈 RESUMEN DE OPTIMIZACIÓN:")
+                print(f"   - Energía total asignada: {total_energia:,.2f} kWh")
+                print(f"   - Costo total: ${total_costo:,.2f}")
+                print(f"   - Precio promedio ponderado: ${precio_promedio:.4f}/kWh")
+                print(f"   - Ofertas utilizadas: {len([s for s in filas_stats if s['TIPO'] == 'OFERTA'])}")
             else:
-                print("⚠ No hay suficientes datos para generar estadísticas")
+                print("⚠️ No hay suficientes datos para generar estadísticas")
         
         except Exception as e:
             logger.warning(f"No se pudieron calcular estadísticas: {e}")
-            print(f"⚠ ADVERTENCIA: No se pudieron calcular estadísticas completas: {e}")
+            print(f"⚠️ ADVERTENCIA: No se pudieron calcular estadísticas completas: {e}")
         
-        print("\n🎉 === PROCESO COMPLETADO CON ÉXITO ===")
+        # Mostrar información de déficit si existe
+        if "DEMANDA_FALTANTE" in resultados_dict:
+            deficit_total = 0
+            demanda_faltante_df = resultados_dict["DEMANDA_FALTANTE"]
+            for _, row in demanda_faltante_df.iterrows():
+                for hora in range(1, 25):
+                    if hora in row and pd.notna(row[hora]):
+                        deficit_total += row[hora]
+            
+            # Calcular demanda total directamente del modelo
+            demanda_total = sum(pyo.value(model.D[a, h]) for a in model.A for h in model.H)
+            
+            if deficit_total > 0:
+                porcentaje_deficit = (deficit_total / demanda_total) * 100 if demanda_total > 0 else 0
+                print(f"\n⚠️ DÉFICIT DETECTADO:")
+                print(f"   - Déficit total: {deficit_total:,.2f} kWh")
+                print(f"   - Porcentaje de déficit: {porcentaje_deficit:.2f}%")
+                print("   - Esto significa que las ofertas no cubren toda la demanda")
+            else:
+                print(f"\n✅ SIN DÉFICIT: Toda la demanda fue cubierta")
+        
+        print(f"\n🎉 === OPTIMIZACIÓN COMPLETADA CON ÉXITO ===")
+        print(f"💡 Para generar visualizaciones, use la opción 6 del menú")
         return True
         
     except Exception as e:
         logger.exception(f"Error en el proceso de optimización: {e}")
-        print(f"❌ ERROR INESPERADO: {e}")
+        print(f"❌ ERROR INESPERADO EN OPTIMIZACIÓN: {e}")
         return False
+
+def generar_visualizaciones_automatico():
+    """
+    Genera visualizaciones automáticamente después de la optimización.
+    Lee los resultados desde el archivo Excel y genera todas las gráficas.
+    Esta función se ejecuta automáticamente en el punto 6.
+    
+    Returns:
+        bool: True si el proceso fue exitoso, False en caso contrario
+    """
+    try:
+        print("\n🎨 === GENERANDO VISUALIZACIONES AUTOMÁTICAMENTE ===")
+        
+        if not VISUALIZACIONES_DISPONIBLES:
+            print("❌ ERROR: Módulo de visualizaciones no disponible")
+            print("💡 Instale las dependencias de visualización (plotly, matplotlib)")
+            return False
+        
+        # Verificar que existe el archivo de resultados
+        if not verificar_archivo_existe(RESULTADO_OFERTAS):
+            print(f"❌ ERROR: No se encontró el archivo de resultados: {RESULTADO_OFERTAS}")
+            print("💡 Sugerencia: Ejecute primero la opción 5 (Optimizar asignación)")
+            return False
+        
+        print(f"📁 Leyendo resultados desde: {RESULTADO_OFERTAS}")
+        
+        # Cargar los resultados desde Excel
+        print("🔄 Cargando resultados desde archivo Excel...")
+        from core.evaluacion import cargar_resultados_desde_excel
+        resultados_dict = cargar_resultados_desde_excel(RESULTADO_OFERTAS)
+        
+        if not resultados_dict:
+            print("❌ ERROR: No se pudieron cargar los resultados desde el archivo Excel")
+            print("💡 Posibles causas:")
+            print("   - El archivo no tiene el formato esperado")
+            print("   - Faltan hojas necesarias (DA-*, ENA-*, RESUMEN EJECUTIVO)")
+            print("   - El archivo está corrupto o abierto en otra aplicación")
+            print("   - Los resultados de optimización no se completaron correctamente")
+            return False
+        
+        print(f"✅ Resultados cargados exitosamente: {len(resultados_dict)} hojas de datos")
+        
+        # Mostrar qué tipos de datos se cargaron
+        tipos_datos = {
+            "Demanda Asignada (DA)": len([k for k in resultados_dict.keys() if "_COMPRAR" in k]),
+            "Energía No Asignada (ENA)": len([k for k in resultados_dict.keys() if "_NO_COMPRADA" in k]),
+            "Demanda Faltante": 1 if "DEMANDA_FALTANTE" in resultados_dict else 0,
+            "Resumen Ejecutivo": 1 if "RESUMEN EJECUTIVO" in resultados_dict else 0
+        }
+        
+        print("📊 Tipos de datos encontrados:")
+        for tipo, cantidad in tipos_datos.items():
+            if cantidad > 0:
+                print(f"   ✅ {tipo}: {cantidad}")
+            else:
+                print(f"   ❌ {tipo}: No encontrado")
+        
+        # Leer ofertas evaluadas para compatibilidad con visualizaciones
+        print("\n📋 Cargando datos de ofertas originales...")
+        ofertas_df = leer_ofertas_evaluadas(RESULTADO_OFERTAS, solo_validas=False)
+        
+        if ofertas_df.empty:
+            print("⚠️ ADVERTENCIA: No se encontraron ofertas evaluadas")
+            print("   Continuando con DataFrame vacío para compatibilidad")
+            ofertas_df = pd.DataFrame()
+        else:
+            print(f"✅ Ofertas cargadas: {len(ofertas_df)} registros")
+        
+        # Generar las visualizaciones usando el sistema existente
+        print("\n🎨 === INICIANDO GENERACIÓN DE VISUALIZACIONES ===")
+        print("📊 Generando:")
+        print("   🔹 Gráfica principal de energía asignada y no asignada")
+        print("   🔹 Gráfica de resumen general de adjudicación")
+        print("   🔹 Gráfica de torta de distribución")
+        print("   🔹 Mapa de calor mensual")
+        print("   🔹 Distribución por agente")
+        print("   🔹 Reporte HTML consolidado")
+        
+        try:
+            # Generar todas las visualizaciones
+            if generar_reporte_completo(resultados_dict, ofertas_df, RESULTADO_OFERTAS):
+                print("\n🎉 === ¡VISUALIZACIONES GENERADAS EXITOSAMENTE! ===")
+                
+                # Mostrar resumen de lo generado
+                print("\n📊 ARCHIVOS GENERADOS:")
+                print("   ✅ 01_energia_asignada_principal.html")
+                print("   ✅ 02_resumen_general.html")
+                print("   ✅ 03_torta_adjudicacion.html")
+                print("   ✅ 04_mapa_calor_mensual.html")
+                print("   ✅ 05_distribucion_agentes.html")
+                print("   ✅ reporte_consolidado.html")
+                
+                # Mostrar ubicación de los archivos
+                from pathlib import Path
+                output_dir = Path(RESULTADO_OFERTAS).parent / "visualizaciones"
+                print(f"\n📁 UBICACIÓN: {output_dir}")
+                print(f"🌐 ARCHIVO PRINCIPAL: {output_dir / 'reporte_consolidado.html'}")
+                print("\n💡 INSTRUCCIONES:")
+                print("   1. Navegue a la carpeta de visualizaciones")
+                print("   2. Abra 'reporte_consolidado.html' en su navegador")
+                print("   3. O abra cualquier archivo individual .html")
+                print("   4. Las gráficas son interactivas (zoom, hover, etc.)")
+                
+                return True
+            else:
+                print("\n❌ ERROR: No se pudieron generar todas las visualizaciones")
+                print("💡 Posibles causas:")
+                print("   - Datos insuficientes en los resultados")
+                print("   - Error en el formato de los datos")
+                print("   - Problemas de permisos de escritura")
+                print("   - Revisar logs para más detalles")
+                return False
+                
+        except Exception as e:
+            print(f"\n❌ ERROR DURANTE LA GENERACIÓN: {e}")
+            logger.exception(f"Error en generación de visualizaciones: {e}")
+            print("\n🔧 SOLUCIONES SUGERIDAS:")
+            print("   - Cerrar Excel si tiene abierto el archivo de resultados")
+            print("   - Verificar permisos de escritura en la carpeta")
+            print("   - Re-ejecutar la opción 5 (optimización) si los datos parecen incorrectos")
+            print("   - Revisar el log del sistema para detalles técnicos")
+            return False
+        
+    except Exception as e:
+        logger.exception(f"Error general al generar visualizaciones: {e}")
+        print(f"\n❌ ERROR INESPERADO EN VISUALIZACIONES: {e}")
+        print("\n🆘 ACCIONES RECOMENDADAS:")
+        print("   1. Verificar que el archivo Excel no esté abierto en otra aplicación")
+        print("   2. Revisar que las hojas del archivo tengan el formato correcto")
+        print("   3. Intentar ejecutar la opción 5 nuevamente para generar resultados frescos")
+        print("   4. Verificar instalación de dependencias: plotly, matplotlib")
+        return False
+
 
 def generar_solo_visualizaciones():
     """
@@ -556,7 +723,7 @@ def generar_solo_visualizaciones():
         return False
 
 def main():
-    """Función principal que ejecuta la aplicación."""
+    """Función principal que ejecuta la aplicación con las modificaciones."""
     # Configurar parser de argumentos
     parser = argparse.ArgumentParser(description="Sistema de optimización energética con Pyomo")
     parser.add_argument(
@@ -572,7 +739,12 @@ def main():
     parser.add_argument(
         "--solo-optimizacion",
         action="store_true",
-        help="Ejecutar solo la optimización con Pyomo"
+        help="Ejecutar solo la optimización con Pyomo (sin visualizaciones)"
+    )
+    parser.add_argument(
+        "--solo-visualizaciones",
+        action="store_true",
+        help="Ejecutar solo la generación de visualizaciones"
     )
     args = parser.parse_args()
     
@@ -584,9 +756,13 @@ def main():
     if args.solo_ofertas:
         return procesar_ofertas_solo_tabla()
         
-    # Modo solo optimización
+    # Modo solo optimización (SIN visualizaciones)
     if args.solo_optimizacion:
         return optimizar_con_pyomo()
+    
+    # Modo solo visualizaciones
+    if args.solo_visualizaciones:
+        return generar_visualizaciones_automatico()
     
     # Modo interactivo
     while True:
@@ -610,8 +786,8 @@ def main():
             print("\n=== OPTIMIZAR ASIGNACIÓN DE OFERTAS CON PYOMO ===")
             optimizar_con_pyomo()
         elif opcion == 6:
-            print("\n=== GENERAR SOLO VISUALIZACIONES ===")
-            generar_solo_visualizaciones()
+            print("\n=== GENERAR VISUALIZACIONES AUTOMÁTICAMENTE ===")
+            generar_visualizaciones_automatico()
         elif opcion == 7:
             print("\n=== CONFIGURACIÓN ACTUAL ===")
             print(f"📁 Archivo de datos iniciales: {DATOS_INICIALES}")
@@ -619,6 +795,11 @@ def main():
             print(f"📁 Archivo de resultados: {RESULTADO_OFERTAS}")
             print(f"📁 Archivo de estadísticas: {ESTADISTICAS_OFERTAS}")
             print(f"📊 Visualizaciones disponibles: {'✅' if VISUALIZACIONES_DISPONIBLES else '❌'}")
+            print(f"🚀 Versión optimizada disponible: {'✅' if OPTIMIZACION_DISPONIBLE else '❌'}")
+            print(f"\n💡 Flujo de trabajo recomendado:")
+            print(f"   1. Ejecutar opción 4 (Procesar ofertas)")
+            print(f"   2. Ejecutar opción 5 (Optimizar con Pyomo)")
+            print(f"   3. Ejecutar opción 6 (Generar visualizaciones)")
 
     return True
 

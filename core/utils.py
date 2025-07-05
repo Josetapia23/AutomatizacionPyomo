@@ -102,6 +102,83 @@ def leer_excel_seguro(archivo, hoja=0, **kwargs):
         logger.error(f"Error al leer {archivo} (hoja: {hoja}): {e}")
         return pd.DataFrame()
 
+def leer_excel_case_insensitive(archivo_path, nombre_hoja_objetivo):
+    """
+    Lee una hoja de Excel de manera case-insensitive.
+    Busca la hoja sin importar mayúsculas/minúsculas.
+    
+    Args:
+        archivo_path (str): Ruta al archivo Excel
+        nombre_hoja_objetivo (str): Nombre de la hoja a buscar (case-insensitive)
+        
+    Returns:
+        DataFrame: DataFrame con los datos de la hoja encontrada
+    """
+    try:
+        # Abrir el archivo Excel para obtener nombres de hojas
+        excel_file = pd.ExcelFile(archivo_path)
+        sheet_names = excel_file.sheet_names
+        
+        # Buscar coincidencia case-insensitive
+        nombre_hoja_lower = nombre_hoja_objetivo.lower()
+        hoja_encontrada = None
+        
+        for sheet_name in sheet_names:
+            if sheet_name.lower() == nombre_hoja_lower:
+                hoja_encontrada = sheet_name
+                break
+        
+        if hoja_encontrada is None:
+            # Mostrar hojas disponibles para debugging
+            hojas_disponibles = ", ".join(sheet_names)
+            logger.warning(f"No se encontró la hoja '{nombre_hoja_objetivo}' (case-insensitive). "
+                          f"Hojas disponibles: {hojas_disponibles}")
+            return pd.DataFrame()
+        
+        # Leer la hoja encontrada
+        df = pd.read_excel(excel_file, sheet_name=hoja_encontrada)
+        
+        # Log para verificación
+        if hoja_encontrada != nombre_hoja_objetivo:
+            logger.info(f"Hoja encontrada con diferente capitalización: "
+                       f"'{nombre_hoja_objetivo}' → '{hoja_encontrada}'")
+        
+        return df
+        
+    except Exception as e:
+        logger.error(f"Error al leer hoja '{nombre_hoja_objetivo}' de {archivo_path}: {e}")
+        return pd.DataFrame()
+
+def verificar_hoja_existe_case_insensitive(archivo_excel, nombre_hoja):
+    """
+    Verifica si una hoja específica existe en un archivo Excel (case-insensitive).
+    
+    Args:
+        archivo_excel (str o Path): Ruta al archivo Excel
+        nombre_hoja (str): Nombre de la hoja a verificar (case-insensitive)
+        
+    Returns:
+        tuple: (bool, str) - (existe, nombre_real_de_la_hoja)
+    """
+    try:
+        excel_file = pd.ExcelFile(archivo_excel)
+        hojas_disponibles = excel_file.sheet_names
+        nombre_hoja_lower = nombre_hoja.lower()
+        
+        for hoja_disponible in hojas_disponibles:
+            if hoja_disponible.lower() == nombre_hoja_lower:
+                return True, hoja_disponible
+        
+        logger.warning(f"La hoja '{nombre_hoja}' no existe en el archivo {archivo_excel}")
+        logger.warning(f"Hojas disponibles: {hojas_disponibles}")
+        return False, None
+        
+    except Exception as e:
+        logger.error(f"Error al verificar la hoja '{nombre_hoja}' en {archivo_excel}: {e}")
+        return False, None
+
+
+
 def guardar_excel_seguro(df, archivo, hoja, index=False, **kwargs):
     """
     Guarda un DataFrame en un archivo Excel de manera segura.
