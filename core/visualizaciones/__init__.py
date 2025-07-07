@@ -15,7 +15,8 @@ from .basicas import (
 # Importar funciones avanzadas
 from .avanzadas import (
     crear_mapa_calor_mensual,
-    crear_distribucion_por_agente
+    crear_distribucion_por_agente,
+    crear_tabla_energia_faltante_horaria  
 )
 
 # Función de compatibilidad para main.py
@@ -43,5 +44,6 @@ __all__ = [
     'crear_grafica_resumen_general',
     'crear_grafica_torta_adjudicacion',
     'crear_mapa_calor_mensual',
-    'crear_distribucion_por_agente'
+    'crear_distribucion_por_agente',
+    'crear_tabla_energia_faltante_horaria' 
 ]

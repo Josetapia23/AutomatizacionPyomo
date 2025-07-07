@@ -16,7 +16,8 @@ from .basicas import (
 )
 from .avanzadas import (
     crear_mapa_calor_mensual,
-    crear_distribucion_por_agente
+    crear_distribucion_por_agente,
+    crear_tabla_energia_faltante_horaria  
 )
 from .utils import ensure_directory_exists, format_number
 
@@ -126,6 +127,23 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
         except Exception as e:
             print(f"  ❌ Error en distribución por agente: {e}")
             logger.error(f"Error en distribución por agente: {e}")
+        
+        # 6. NUEVA VISUALIZACIÓN: Tabla de Energía Faltante Horaria
+        print("🔹 Creando tabla de energía faltante horaria...")
+        graficas_totales += 1
+        try:
+            fig_energia_horaria = crear_tabla_energia_faltante_horaria(resultados_dict)
+            if fig_energia_horaria:
+                archivo_energia_horaria = output_dir / "06_energia_faltante_horaria.html"
+                pyo.plot(fig_energia_horaria, filename=str(archivo_energia_horaria), auto_open=False)
+                print(f"  ✅ Tabla de energía faltante horaria guardada: {archivo_energia_horaria}")
+                graficas_exitosas += 1
+            else:
+                print("  ⚠️ No se pudo crear la tabla de energía faltante horaria")
+        except Exception as e:
+            print(f"  ❌ Error en tabla de energía faltante horaria: {e}")
+            logger.error(f"Error en tabla de energía faltante horaria: {e}")
+        
         print("🔹 Creando reporte HTML consolidado...")
         try:
             crear_reporte_html_consolidado(resultados_dict, output_dir)
@@ -168,6 +186,7 @@ def crear_reporte_html_consolidado(resultados_dict, output_dir):
         fig_torta = crear_grafica_torta_adjudicacion(resultados_dict)
         fig_mapa_calor = crear_mapa_calor_mensual(resultados_dict)
         fig_agentes = crear_distribucion_por_agente(resultados_dict)
+        fig_energia_horaria = crear_tabla_energia_faltante_horaria(resultados_dict)  # NUEVA
         
         # Generar HTML consolidado
         html_content = f"""
@@ -253,6 +272,31 @@ def crear_reporte_html_consolidado(resultados_dict, output_dir):
             </div>
             """
         
+        # Agregar mapa de calor
+        if fig_mapa_calor:
+            html_content += """
+            <div class="grafica-container">
+                <h3>🔹 Mapa de Calor: Demanda Faltante Mensual</h3>
+                <div class="descripcion">
+                    Visualización de la demanda faltante agregada por mes y año.
+                </div>
+                <div id="grafica-mapa-calor"></div>
+            </div>
+            """
+        
+        # NUEVA SECCIÓN: Agregar tabla de energía faltante horaria
+        if fig_energia_horaria:
+            html_content += """
+            <div class="grafica-container">
+                <h3>🔹 Energía Faltante Horaria Mensual por Año</h3>
+                <div class="descripcion">
+                    Tabla detallada que muestra la energía faltante (GWh) desglosada por año, mes y hora.
+                    Permite identificar patrones temporales de déficit energético con granularidad horaria.
+                </div>
+                <div id="grafica-energia-horaria"></div>
+            </div>
+            """
+        
         # Cerrar HTML y agregar scripts de Plotly
         html_content += f"""
             <div class="timestamp">
@@ -282,6 +326,21 @@ def crear_reporte_html_consolidado(resultados_dict, output_dir):
             html_content += f"""
                 var grafica_torta = {config_json};
                 Plotly.newPlot('grafica-torta', grafica_torta.data, grafica_torta.layout, {{responsive: true}});
+            """
+        
+        if fig_mapa_calor:
+            config_json = fig_mapa_calor.to_json()
+            html_content += f"""
+                var grafica_mapa_calor = {config_json};
+                Plotly.newPlot('grafica-mapa-calor', grafica_mapa_calor.data, grafica_mapa_calor.layout, {{responsive: true}});
+            """
+        
+        # NUEVO: Script para tabla de energía faltante horaria
+        if fig_energia_horaria:
+            config_json = fig_energia_horaria.to_json()
+            html_content += f"""
+                var grafica_energia_horaria = {config_json};
+                Plotly.newPlot('grafica-energia-horaria', grafica_energia_horaria.data, grafica_energia_horaria.layout, {{responsive: true}});
             """
         
         html_content += """
