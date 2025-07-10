@@ -28,6 +28,8 @@ from core.evaluacion import (
     exportar_asignaciones_por_oferta, crear_hoja_demanda_faltante,
     leer_ofertas_evaluadas, exportar_resultados_por_oferta, cargar_resultados_desde_excel
 )
+from core.validador_ofertas import validar_carpeta_ofertas
+
 from optimizacion.modelo import construir_modelo, extraer_resultados
 from optimizacion.solver import resolver_modelo
 

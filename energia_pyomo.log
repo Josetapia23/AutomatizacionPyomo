@@ -1,0 +1,46 @@
+2025-07-10 15:42:53,306 - core.ofertas_optimizado - INFO - Procesando PRECIO SICEP (optimizado) desde /Users/mac01/Documents/JoseTapia/AutomatizacionPyomo/data/datos_iniciales.xlsx
+2025-07-10 15:42:53,376 - core.ofertas_optimizado - INFO - Procesando ofertas (OPTIMIZADO CON ESTANDARIZACIÓN) en /Users/mac01/Documents/JoseTapia/AutomatizacionPyomo/OFERTAS
+2025-07-10 15:42:54,333 - core.ofertas_optimizado - INFO - Procesando PRECIO SICEP (optimizado) desde /Users/mac01/Documents/JoseTapia/AutomatizacionPyomo/data/datos_iniciales.xlsx
+2025-07-10 15:42:54,365 - core.ofertas_optimizado - INFO - Procesando PRECIO BOLSA (optimizado) desde /Users/mac01/Documents/JoseTapia/AutomatizacionPyomo/data/datos_iniciales.xlsx
+2025-07-10 15:42:54,428 - core.validador_ofertas - WARNING - ❌ Oferta inválida: OP1_Wide- BTG.xlsx
+2025-07-10 15:42:54,428 - core.validador_ofertas - INFO - ✅ Oferta válida: EPM-OFERTA-01.xlsx → EPM-OFERTA-001
+2025-07-10 15:42:54,428 - core.validador_ofertas - INFO - ✅ Oferta válida: ISAGEN-oferta-01.xlsx → ISAGEN-OFERTA-001
+2025-07-10 15:42:54,428 - core.validador_ofertas - INFO - ✅ Oferta válida: AES-OFERTA-01.xlsx → AES-OFERTA-001
+2025-07-10 15:45:41,048 - core.ofertas_optimizado - INFO - Procesamiento optimizado con estandarización completado en 167.6s
+2025-07-10 16:01:50,286 - __main__ - INFO - Leyendo datos de demanda desde /Users/mac01/Documents/JoseTapia/AutomatizacionPyomo/data/datos_iniciales.xlsx (hoja: DEMANDA)
+2025-07-10 16:01:50,667 - __main__ - INFO - Datos de demanda leídos correctamente: 43824 registros
+2025-07-10 16:02:01,201 - core.evaluacion - INFO - Se leyeron 50712 ofertas, de las cuales 50712 son válidas para optimización
+2025-07-10 16:02:11,398 - core.evaluacion - INFO - Se leyeron 50712 ofertas (incluyendo rechazadas)
+2025-07-10 16:02:11,398 - optimizacion.modelo - INFO - Construyendo modelo de optimización...
+2025-07-10 16:02:18,496 - optimizacion.modelo - INFO - Modelo construido con 50712 combinaciones de ofertas válidas
+2025-07-10 16:02:18,502 - optimizacion.solver - INFO - Resolviendo modelo de optimización (tiempo límite: 600 segundos)...
+2025-07-10 16:02:18,503 - optimizacion.solver - INFO - Ruta del solver CBC: /usr/local/bin/cbc
+2025-07-10 16:02:37,020 - optimizacion.solver - INFO - Se encontró una solución óptima
+2025-07-10 16:02:37,273 - optimizacion.solver - INFO - Valor de la función objetivo: 3.928583237271314e+19
+2025-07-10 16:02:37,274 - optimizacion.modelo - INFO - Extrayendo resultados del modelo...
+2025-07-10 16:07:46,350 - optimizacion.modelo - INFO - Demanda total: 5683650354.00 kWh
+2025-07-10 16:07:46,352 - optimizacion.modelo - INFO - Energía asignada total: 1755067155.00 kWh
+2025-07-10 16:07:46,352 - optimizacion.modelo - INFO -   - EPM-OFERTA-001: 916608868.00 kWh (IT1: 916608868.00)
+2025-07-10 16:07:46,352 - optimizacion.modelo - INFO -   - AES-OFERTA-001: 415000000.00 kWh (IT1: 415000000.00)
+2025-07-10 16:07:46,352 - optimizacion.modelo - INFO -   - ISAGEN-OFERTA-001: 423458287.00 kWh (IT1: 423458287.00)
+2025-07-10 16:07:46,352 - optimizacion.modelo - INFO - Déficit total: 3928583199.00 kWh
+2025-07-10 16:07:46,352 - optimizacion.modelo - INFO - Porcentaje cubierto: 30.88%
+2025-07-10 16:07:46,352 - optimizacion.modelo - INFO - Porcentaje déficit: 69.12%
+2025-07-10 16:07:46,358 - core.evaluacion - INFO - Exportando resultados al archivo: /Users/mac01/Documents/JoseTapia/AutomatizacionPyomo/output/resultado_ofertas.xlsx
+2025-07-10 16:08:09,866 - core.evaluacion - INFO - Hoja exportada: DA-AES-OFERTA-001
+2025-07-10 16:08:10,100 - core.evaluacion - INFO - Hoja exportada: ENA-AES-OFERTA-001
+2025-07-10 16:08:10,337 - core.evaluacion - INFO - Hoja exportada: DA-ISAGEN-OFERTA-001
+2025-07-10 16:08:10,577 - core.evaluacion - INFO - Hoja exportada: ENA-ISAGEN-OFERTA-001
+2025-07-10 16:08:10,818 - core.evaluacion - INFO - Hoja exportada: DA-EPM-OFERTA-001
+2025-07-10 16:08:11,057 - core.evaluacion - INFO - Hoja exportada: ENA-EPM-OFERTA-001
+2025-07-10 16:08:11,288 - core.evaluacion - INFO - Hoja exportada: DEMANDA FALTANTE
+2025-07-10 16:08:11,295 - core.evaluacion - INFO - Hoja exportada: RESUMEN EJECUTIVO
+2025-07-10 16:08:25,074 - core.evaluacion - INFO - Hoja exportada a análisis: DA-AES-OFERTA-001-IT1
+2025-07-10 16:08:25,311 - core.evaluacion - INFO - Hoja exportada a análisis: ENA-AES-OFERTA-001-IT1
+2025-07-10 16:08:25,543 - core.evaluacion - INFO - Hoja exportada a análisis: DA-EPM-OFERTA-001-IT1
+2025-07-10 16:08:25,774 - core.evaluacion - INFO - Hoja exportada a análisis: ENA-EPM-OFERTA-001-IT1
+2025-07-10 16:08:26,014 - core.evaluacion - INFO - Hoja exportada a análisis: DA-ISAGEN-OFERTA-001-IT1
+2025-07-10 16:08:26,249 - core.evaluacion - INFO - Hoja exportada a análisis: ENA-ISAGEN-OFERTA-001-IT1
+2025-07-10 16:08:26,486 - core.evaluacion - INFO - Hoja DEMANDA FALTANTE exportada a análisis
+2025-07-10 16:08:26,493 - core.evaluacion - INFO - Hoja RESUMEN EJECUTIVO exportada a análisis
+2025-07-10 16:08:26,493 - core.evaluacion - INFO - Análisis detallado exportado a: /Users/mac01/Documents/JoseTapia/AutomatizacionPyomo/output/resultado_ofertas_analisis.xlsx
