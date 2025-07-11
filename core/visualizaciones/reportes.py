@@ -1,5 +1,6 @@
 """
 Módulo para generar reportes completos con visualizaciones.
+FUSIONADO: Incluye todas las gráficas existentes + nuevas gráficas por oferta + navegación mejorada.
 """
 
 import pandas as pd
@@ -17,7 +18,11 @@ from .basicas import (
 from .avanzadas import (
     crear_mapa_calor_mensual,
     crear_distribucion_por_agente,
-    crear_tabla_energia_faltante_horaria  
+    crear_tabla_energia_faltante_horaria  # 🔄 MANTENER del sistema actual
+)
+from .por_oferta import (  # 🆕 NUEVO MÓDULO AGREGADO
+    crear_graficas_por_oferta_completo,
+    generar_reporte_consolidado_ofertas
 )
 from .utils import ensure_directory_exists, format_number
 
@@ -26,6 +31,7 @@ logger = logging.getLogger(__name__)
 def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salida):
     """
     Genera un reporte completo con visualizaciones mejoradas según especificaciones del cliente.
+    FUSIONADO: Incluye TODAS las gráficas + navegación mejorada del sistema anterior.
     
     Args:
         resultados_dict (dict): Diccionario con los resultados de la optimización
@@ -35,8 +41,8 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
     Returns:
         bool: True si la operación fue exitosa, False en caso contrario
     """
-    logger.info("Generando reporte completo mejorado")
-    print("📊 Iniciando generación de visualizaciones...")
+    logger.info("Generando reporte completo FUSIONADO con todas las visualizaciones")
+    print("📊 Iniciando generación de visualizaciones completas...")
     
     try:
         # Crear directorio de salida para las visualizaciones
@@ -128,7 +134,7 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
             print(f"  ❌ Error en distribución por agente: {e}")
             logger.error(f"Error en distribución por agente: {e}")
         
-        # 6. NUEVA VISUALIZACIÓN: Tabla de Energía Faltante Horaria
+        # 🔄 6. MANTENER: Tabla de Energía Faltante Horaria (del sistema actual)
         print("🔹 Creando tabla de energía faltante horaria...")
         graficas_totales += 1
         try:
@@ -143,57 +149,104 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
         except Exception as e:
             print(f"  ❌ Error en tabla de energía faltante horaria: {e}")
             logger.error(f"Error en tabla de energía faltante horaria: {e}")
-        
-        print("🔹 Creando reporte HTML consolidado...")
+
+        # 🆕 7. NUEVO: Gráficas por Oferta (Individuales + Consolidada)
+        print("🔹 Creando gráficas por oferta (individuales + consolidada)...")
+        graficas_totales += 1
+        resultado_ofertas = {}
         try:
-            crear_reporte_html_consolidado(resultados_dict, output_dir)
-            print(f"  ✅ Reporte HTML consolidado creado")
+            # Usar la nueva función completa del módulo por_oferta
+            resultado_ofertas = crear_graficas_por_oferta_completo(resultados_dict, output_dir)
+            
+            graficas_individuales = resultado_ofertas.get('individuales', {})
+            grafica_consolidada = resultado_ofertas.get('consolidada')
+            reporte_individuales = resultado_ofertas.get('reporte_individuales')
+            
+            if graficas_individuales or grafica_consolidada:
+                print(f"  ✅ Gráficas por oferta completadas:")
+                print(f"    - Individuales: {len(graficas_individuales)} ofertas")
+                print(f"    - Consolidada: {'✅ Creada' if grafica_consolidada else '❌ Error'}")
+                if reporte_individuales:
+                    print(f"    - Reporte individuales: {reporte_individuales.name}")
+                graficas_exitosas += 1
+            else:
+                print("  ⚠️ No se pudieron crear gráficas por oferta")
+        except Exception as e:
+            print(f"  ❌ Error en gráficas por oferta: {e}")
+            logger.error(f"Error en gráficas por oferta: {e}")
+
+        # 8. Reporte HTML Consolidado MEJORADO (con navegación del sistema anterior)
+        print("🔹 Creando reporte HTML consolidado con navegación mejorada...")
+        try:
+            crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, resultado_ofertas)
+            print(f"  ✅ Reporte HTML consolidado con navegación mejorada creado")
             graficas_exitosas += 1
         except Exception as e:
             print(f"  ❌ Error en reporte HTML: {e}")
             logger.error(f"Error en reporte HTML: {e}")
         
-        # Resumen final
-        print(f"\n📈 Resumen de visualizaciones:")
+        # Resumen final MEJORADO
+        print(f"\n📈 Resumen de visualizaciones COMPLETAS:")
         print(f"   ✅ Exitosas: {graficas_exitosas}")
         print(f"   ❌ Fallidas: {graficas_totales - graficas_exitosas}")
         print(f"   📁 Ubicación: {output_dir}")
+        print(f"   📊 Tipos generados:")
+        print(f"     - Gráfica principal de energía")
+        print(f"     - Resumen general de adjudicación")
+        print(f"     - Gráfica de torta de distribución")
+        print(f"     - Mapa de calor mensual")
+        print(f"     - Distribución por agente")
+        print(f"     - Tabla de energía faltante horaria")
+        
+        if resultado_ofertas:
+            graficas_individuales = resultado_ofertas.get('individuales', {})
+            grafica_consolidada = resultado_ofertas.get('consolidada')
+            print(f"     - Gráficas por oferta: {len(graficas_individuales)} individuales")
+            print(f"     - Gráfica consolidada: {'✅ Creada' if grafica_consolidada else '❌ Error'}")
         
         if graficas_exitosas > 0:
-            print(f"\n🎉 ¡Se generaron {graficas_exitosas} visualizaciones exitosamente!")
+            print(f"\n🎉 ¡Se generaron {graficas_exitosas} tipos de visualizaciones exitosamente!")
+            print(f"🌐 Archivo principal: {output_dir / 'reporte_consolidado.html'}")
+            print(f"💡 Abre el archivo HTML en tu navegador para ver todas las gráficas")
             return True
         else:
             print(f"\n⚠️ No se pudieron generar visualizaciones")
             return False
             
     except Exception as e:
-        logger.exception(f"Error general en generación de reporte: {e}")
+        logger.exception(f"Error general en generación de reporte fusionado: {e}")
         print(f"❌ Error general: {e}")
         return False
 
-def crear_reporte_html_consolidado(resultados_dict, output_dir):
+def crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, resultado_ofertas=None):
     """
-    Crea un reporte HTML consolidado con todas las gráficas.
+    Crea un reporte HTML consolidado con TODAS las gráficas y navegación mejorada.
+    FUSIONADO: Combina el estilo del sistema anterior con todas las funcionalidades actuales.
     
     Args:
         resultados_dict (dict): Diccionario con los resultados
         output_dir (Path): Directorio de salida
+        resultado_ofertas (dict, opcional): Resultado completo de gráficas por oferta
     """
     try:
-        # Crear las gráficas
+        # Crear las gráficas generales
         fig_principal = crear_grafica_principal_energia_asignada(resultados_dict)
         fig_resumen = crear_grafica_resumen_general(resultados_dict)
         fig_torta = crear_grafica_torta_adjudicacion(resultados_dict)
         fig_mapa_calor = crear_mapa_calor_mensual(resultados_dict)
         fig_agentes = crear_distribucion_por_agente(resultados_dict)
-        fig_energia_horaria = crear_tabla_energia_faltante_horaria(resultados_dict)  # NUEVA
+        fig_energia_horaria = crear_tabla_energia_faltante_horaria(resultados_dict)  # 🔄 AGREGADA
         
-        # Generar HTML consolidado
+        # Extraer datos de ofertas
+        graficas_individuales = resultado_ofertas.get('individuales', {}) if resultado_ofertas else {}
+        grafica_consolidada = resultado_ofertas.get('consolidada') if resultado_ofertas else None
+        
+        # Generar HTML consolidado MEJORADO (con navegación del sistema anterior)
         html_content = f"""
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Reporte de Optimización Energética</title>
+            <title>Reporte de Optimización Energética - Completo</title>
             <meta charset="utf-8">
             <style>
                 body {{
@@ -218,11 +271,54 @@ def crear_reporte_html_consolidado(resultados_dict, output_dir):
                     font-size: 14px;
                     margin-bottom: 15px;
                 }}
+                .ofertas-section {{
+                    background-color: #e8f4f8;
+                    padding: 20px;
+                    border-radius: 8px;
+                    margin: 20px 0;
+                }}
+                .consolidada-section {{
+                    background-color: #f0f8e8;
+                    padding: 20px;
+                    border-radius: 8px;
+                    margin: 20px 0;
+                    border-left: 5px solid #2ecc71;
+                }}
+                .oferta-link, .nav-button {{
+                    display: inline-block;
+                    padding: 8px 15px;
+                    background-color: #1f4e79;
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 5px;
+                    margin: 5px;
+                    font-size: 12px;
+                }}
+                .oferta-link:hover, .nav-button:hover {{
+                    background-color: #2ecc71;
+                }}
+                .consolidada-button {{
+                    background-color: #2ecc71;
+                    padding: 12px 25px;
+                    font-size: 14px;
+                    font-weight: bold;
+                }}
+                .consolidada-button:hover {{
+                    background-color: #27ae60;
+                }}
                 .timestamp {{
                     text-align: center;
                     color: #999;
                     font-size: 12px;
                     margin-top: 30px;
+                }}
+                .navigation {{
+                    text-align: center;
+                    margin: 20px 0;
+                    background-color: white;
+                    padding: 15px;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
                 }}
             </style>
             <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
@@ -230,8 +326,26 @@ def crear_reporte_html_consolidado(resultados_dict, output_dir):
         <body>
             <div class="header">
                 <h1>📊 REPORTE DE OPTIMIZACIÓN ENERGÉTICA</h1>
-                <h2>Análisis de Asignación de Ofertas</h2>
+                <h2>Análisis Completo de Asignación de Ofertas</h2>
+                <p><strong>Reporte consolidado con todas las visualizaciones disponibles</strong></p>
             </div>
+            
+            <div class="navigation">
+                <h3>🧭 Navegación del Reporte</h3>
+                <a href="#generales" class="nav-button">📈 Gráficas Generales</a>
+                <a href="#avanzadas" class="nav-button">🔬 Análisis Avanzados</a>
+                <a href="#consolidada" class="nav-button">🎯 Consolidado Ofertas</a>
+                <a href="#ofertas" class="nav-button">📋 Ofertas Individuales</a>
+                <a href="reporte_ofertas.html" class="nav-button" target="_blank">📄 Reporte Detallado</a>
+            </div>
+        """
+        
+        # Sección de gráficas generales
+        html_content += """
+            <div id="generales">
+                <h2 style="color: #1f4e79; border-bottom: 2px solid #1f4e79; padding-bottom: 10px;">
+                    📈 GRÁFICAS GENERALES DEL SISTEMA
+                </h2>
         """
         
         # Agregar gráfica principal
@@ -272,32 +386,129 @@ def crear_reporte_html_consolidado(resultados_dict, output_dir):
             </div>
             """
         
-        # Agregar mapa de calor
+        html_content += "</div>"  # Cerrar sección generales
+        
+        # 🔄 NUEVA SECCIÓN: Análisis Avanzados (incluye mapa de calor, distribución por agente, energía faltante horaria)
+        html_content += """
+            <div id="avanzadas">
+                <h2 style="color: #e74c3c; border-bottom: 2px solid #e74c3c; padding-bottom: 10px;">
+                    🔬 ANÁLISIS AVANZADOS
+                </h2>
+        """
+        
+        # Mapa de calor
         if fig_mapa_calor:
-            html_content += """
+            html_content += f"""
             <div class="grafica-container">
                 <h3>🔹 Mapa de Calor: Demanda Faltante Mensual</h3>
                 <div class="descripcion">
                     Visualización de la demanda faltante agregada por mes y año.
                 </div>
-                <div id="grafica-mapa-calor"></div>
+                <div style="text-align: center; margin: 10px 0;">
+                    <a href="04_mapa_calor_mensual.html" class="nav-button" target="_blank">
+                        🌡️ Ver Mapa de Calor Completo
+                    </a>
+                </div>
             </div>
             """
         
-        # NUEVA SECCIÓN: Agregar tabla de energía faltante horaria
+        # Distribución por agente
+        if fig_agentes:
+            html_content += f"""
+            <div class="grafica-container">
+                <h3>🔹 Distribución por Agente</h3>
+                <div class="descripcion">
+                    Análisis de distribución de energía asignada y no asignada por cada agente participante.
+                </div>
+                <div style="text-align: center; margin: 10px 0;">
+                    <a href="05_distribucion_agentes.html" class="nav-button" target="_blank">
+                        🏢 Ver Distribución Completa
+                    </a>
+                </div>
+            </div>
+            """
+        
+        # 🔄 NUEVA: Tabla de energía faltante horaria
         if fig_energia_horaria:
-            html_content += """
+            html_content += f"""
             <div class="grafica-container">
                 <h3>🔹 Energía Faltante Horaria Mensual por Año</h3>
                 <div class="descripcion">
                     Tabla detallada que muestra la energía faltante (GWh) desglosada por año, mes y hora.
                     Permite identificar patrones temporales de déficit energético con granularidad horaria.
                 </div>
-                <div id="grafica-energia-horaria"></div>
+                <div style="text-align: center; margin: 10px 0;">
+                    <a href="06_energia_faltante_horaria.html" class="nav-button" target="_blank">
+                        📊 Ver Tabla Horaria Completa
+                    </a>
+                </div>
             </div>
             """
         
-        # Cerrar HTML y agregar scripts de Plotly
+        html_content += "</div>"  # Cerrar sección avanzadas
+        
+        # 🆕 SECCIÓN: Gráfica Consolidada de Ofertas
+        if grafica_consolidada:
+            html_content += f"""
+            <div id="consolidada">
+                <h2 style="color: #2ecc71; border-bottom: 2px solid #2ecc71; padding-bottom: 10px;">
+                    🎯 CONSOLIDADO DE TODAS LAS OFERTAS
+                </h2>
+                
+                <div class="consolidada-section">
+                    <h3>📊 Vista Unificada de Todas las Ofertas</h3>
+                    <p><strong>Esta gráfica muestra todas las ofertas en una sola vista consolidada</strong></p>
+                    <p>Compare fácilmente volúmenes asignados y precios entre todas las ofertas por período.</p>
+                    
+                    <div style="text-align: center; margin: 20px 0;">
+                        <a href="{grafica_consolidada.name}" class="oferta-link consolidada-button" target="_blank">
+                            🎯 VER GRÁFICA CONSOLIDADA COMPLETA
+                        </a>
+                    </div>
+                    
+                    <div style="background-color: white; padding: 15px; border-radius: 5px; margin-top: 15px;">
+                        <h4 style="color: #2ecc71; margin-top: 0;">💡 ¿Qué incluye la gráfica consolidada?</h4>
+                        <ul style="color: #666; font-size: 13px;">
+                            <li><strong>Barras apiladas:</strong> Energía total asignada por período (suma de todas las ofertas)</li>
+                            <li><strong>Colores en barras:</strong> Contribución de cada oferta al total</li>
+                            <li><strong>Líneas punteadas:</strong> Evolución de precios indexados por oferta</li>
+                            <li><strong>Comparación directa:</strong> Fácil identificación de ofertas más/menos utilizadas</li>
+                            <li><strong>Análisis temporal:</strong> Tendencias de asignación y precios en el tiempo</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            """
+        
+        # Sección de ofertas individuales
+        if graficas_individuales:
+            html_content += f"""
+            <div id="ofertas">
+                <h2 style="color: #1f4e79; border-bottom: 2px solid #1f4e79; padding-bottom: 10px;">
+                    📋 GRÁFICAS INDIVIDUALES POR OFERTA ({len(graficas_individuales)} ofertas)
+                </h2>
+                
+                <div class="ofertas-section">
+                    <h3>🔍 Análisis Detallado por Oferta Individual</h3>
+                    <p>Cada oferta tiene su propia gráfica detallada con información específica.</p>
+                    <p><strong>Haga clic en cualquier oferta para ver su análisis individual:</strong></p>
+            """
+            
+            # Agregar enlaces a cada gráfica individual
+            for nombre_oferta, archivo_grafica in sorted(graficas_individuales.items()):
+                nombre_archivo = archivo_grafica.name
+                html_content += f"""
+                    <a href="{nombre_archivo}" class="oferta-link" target="_blank">
+                        {nombre_oferta}
+                    </a>
+                """
+            
+            html_content += """
+                </div>
+            </div>
+            """
+        
+        # Cerrar HTML y agregar scripts
         html_content += f"""
             <div class="timestamp">
                 Generado el {datetime.now().strftime('%d/%m/%Y a las %H:%M:%S')}
@@ -328,21 +539,6 @@ def crear_reporte_html_consolidado(resultados_dict, output_dir):
                 Plotly.newPlot('grafica-torta', grafica_torta.data, grafica_torta.layout, {{responsive: true}});
             """
         
-        if fig_mapa_calor:
-            config_json = fig_mapa_calor.to_json()
-            html_content += f"""
-                var grafica_mapa_calor = {config_json};
-                Plotly.newPlot('grafica-mapa-calor', grafica_mapa_calor.data, grafica_mapa_calor.layout, {{responsive: true}});
-            """
-        
-        # NUEVO: Script para tabla de energía faltante horaria
-        if fig_energia_horaria:
-            config_json = fig_energia_horaria.to_json()
-            html_content += f"""
-                var grafica_energia_horaria = {config_json};
-                Plotly.newPlot('grafica-energia-horaria', grafica_energia_horaria.data, grafica_energia_horaria.layout, {{responsive: true}});
-            """
-        
         html_content += """
             </script>
         </body>
@@ -354,8 +550,8 @@ def crear_reporte_html_consolidado(resultados_dict, output_dir):
         with open(archivo_consolidado, 'w', encoding='utf-8') as f:
             f.write(html_content)
         
-        logger.info(f"Reporte HTML consolidado creado: {archivo_consolidado}")
+        logger.info(f"Reporte HTML consolidado fusionado creado: {archivo_consolidado}")
         
     except Exception as e:
-        logger.error(f"Error al crear reporte HTML consolidado: {e}")
+        logger.error(f"Error al crear reporte HTML consolidado fusionado: {e}")
         raise
