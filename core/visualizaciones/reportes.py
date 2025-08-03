@@ -13,12 +13,14 @@ from datetime import datetime
 from .basicas import (
     crear_grafica_principal_energia_asignada,
     crear_grafica_resumen_general,
-    crear_grafica_torta_adjudicacion
+    crear_grafica_torta_adjudicacion,
+    crear_grafica_energia_por_anos
 )
 from .avanzadas import (
     crear_mapa_calor_mensual,
     crear_distribucion_por_agente,
-    crear_tabla_energia_faltante_horaria  # 🔄 MANTENER del sistema actual
+    crear_tabla_energia_faltante_horaria,
+    crear_tabla_energia_faltante_mw_promedio
 )
 from .por_oferta import (  # 🆕 NUEVO MÓDULO AGREGADO
     crear_graficas_por_oferta_completo,
@@ -31,7 +33,7 @@ logger = logging.getLogger(__name__)
 def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salida):
     """
     Genera un reporte completo con visualizaciones mejoradas según especificaciones del cliente.
-    FUSIONADO: Incluye TODAS las gráficas + navegación mejorada del sistema anterior.
+    SIN DISTRIBUCIÓN POR AGENTE - Solo gráficas esenciales.
     
     Args:
         resultados_dict (dict): Diccionario con los resultados de la optimización
@@ -41,8 +43,8 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
     Returns:
         bool: True si la operación fue exitosa, False en caso contrario
     """
-    logger.info("Generando reporte completo FUSIONADO con todas las visualizaciones")
-    print("📊 Iniciando generación de visualizaciones completas...")
+    logger.info("Generando reporte completo SIN distribución por agente")
+    print("📊 Iniciando generación de visualizaciones esenciales...")
     
     try:
         # Crear directorio de salida para las visualizaciones
@@ -50,108 +52,147 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
         output_dir = archivo_base.parent / "visualizaciones"
         ensure_directory_exists(output_dir)
         
-        # Contadores de éxito
+        # Contadores de éxito y tracking detallado
         graficas_exitosas = 0
         graficas_totales = 0
+        archivos_generados = []
+        errores_encontrados = []
         
         # 1. Gráfica Principal: Energía Asignada y No Asignada
-        print("🔹 Creando gráfica principal de energía asignada...")
+        print("🔹 [1/8] Creando gráfica principal de energía asignada...")
         graficas_totales += 1
         try:
             fig_principal = crear_grafica_principal_energia_asignada(resultados_dict)
             if fig_principal:
                 archivo_principal = output_dir / "01_energia_asignada_principal.html"
                 pyo.plot(fig_principal, filename=str(archivo_principal), auto_open=False)
-                print(f"  ✅ Gráfica principal guardada: {archivo_principal}")
+                print(f"  ✅ ÉXITO: {archivo_principal.name}")
+                archivos_generados.append("01_energia_asignada_principal.html")
                 graficas_exitosas += 1
             else:
-                print("  ❌ Error: No se pudo crear la gráfica principal")
+                print("  ❌ FALLO: No se pudo crear la gráfica principal")
+                errores_encontrados.append("Gráfica principal: Sin datos válidos")
         except Exception as e:
-            print(f"  ❌ Error en gráfica principal: {e}")
+            print(f"  ❌ FALLO: {str(e)[:60]}...")
+            errores_encontrados.append(f"Gráfica principal: {e}")
             logger.error(f"Error en gráfica principal: {e}")
         
         # 2. Gráfica de Resumen General
-        print("🔹 Creando gráfica de resumen general...")
+        print("🔹 [2/8] Creando gráfica de resumen general...")
         graficas_totales += 1
         try:
             fig_resumen = crear_grafica_resumen_general(resultados_dict)
             if fig_resumen:
                 archivo_resumen = output_dir / "02_resumen_general.html"
                 pyo.plot(fig_resumen, filename=str(archivo_resumen), auto_open=False)
-                print(f"  ✅ Gráfica de resumen guardada: {archivo_resumen}")
+                print(f"  ✅ ÉXITO: {archivo_resumen.name}")
+                archivos_generados.append("02_resumen_general.html")
                 graficas_exitosas += 1
             else:
-                print("  ⚠️ No se pudo crear la gráfica de resumen (posiblemente faltan datos)")
+                print("  ❌ FALLO: No se encontró RESUMEN EJECUTIVO")
+                errores_encontrados.append("Resumen general: Falta RESUMEN EJECUTIVO")
         except Exception as e:
-            print(f"  ❌ Error en gráfica de resumen: {e}")
+            print(f"  ❌ FALLO: {str(e)[:60]}...")
+            errores_encontrados.append(f"Resumen general: {e}")
             logger.error(f"Error en gráfica de resumen: {e}")
         
         # 3. Gráfica de Torta
-        print("🔹 Creando gráfica de torta de adjudicación...")
+        print("🔹 [3/8] Creando gráfica de torta de adjudicación...")
         graficas_totales += 1
         try:
             fig_torta = crear_grafica_torta_adjudicacion(resultados_dict)
             if fig_torta:
                 archivo_torta = output_dir / "03_torta_adjudicacion.html"
                 pyo.plot(fig_torta, filename=str(archivo_torta), auto_open=False)
-                print(f"  ✅ Gráfica de torta guardada: {archivo_torta}")
+                print(f"  ✅ ÉXITO: {archivo_torta.name}")
+                archivos_generados.append("03_torta_adjudicacion.html")
                 graficas_exitosas += 1
             else:
-                print("  ⚠️ No se pudo crear la gráfica de torta")
+                print("  ❌ FALLO: No se pudieron procesar datos de ofertas")
+                errores_encontrados.append("Torta: Sin datos de ofertas procesables")
         except Exception as e:
-            print(f"  ❌ Error en gráfica de torta: {e}")
+            print(f"  ❌ FALLO: {str(e)[:60]}...")
+            errores_encontrados.append(f"Torta: {e}")
             logger.error(f"Error en gráfica de torta: {e}")
         
         # 4. Mapa de Calor Mensual
-        print("🔹 Creando mapa de calor mensual...")
+        print("🔹 [4/8] Creando mapa de calor mensual...")
         graficas_totales += 1
         try:
             fig_mapa_calor = crear_mapa_calor_mensual(resultados_dict)
             if fig_mapa_calor:
                 archivo_mapa = output_dir / "04_mapa_calor_mensual.html"
                 pyo.plot(fig_mapa_calor, filename=str(archivo_mapa), auto_open=False)
-                print(f"  ✅ Mapa de calor mensual guardado: {archivo_mapa}")
+                print(f"  ✅ ÉXITO: {archivo_mapa.name}")
+                archivos_generados.append("04_mapa_calor_mensual.html")
                 graficas_exitosas += 1
             else:
-                print("  ⚠️ No se pudo crear el mapa de calor mensual")
+                print("  ❌ FALLO: No se encontró DEMANDA_FALTANTE")
+                errores_encontrados.append("Mapa calor: Falta DEMANDA_FALTANTE")
         except Exception as e:
-            print(f"  ❌ Error en mapa de calor mensual: {e}")
+            print(f"  ❌ FALLO: {str(e)[:60]}...")
+            errores_encontrados.append(f"Mapa calor: {e}")
             logger.error(f"Error en mapa de calor mensual: {e}")
 
-        # 5. Distribución por Agente
-        print("🔹 Creando distribución por agente...")
-        graficas_totales += 1
-        try:
-            fig_agentes = crear_distribucion_por_agente(resultados_dict)
-            if fig_agentes:
-                archivo_agentes = output_dir / "05_distribucion_agentes.html"
-                pyo.plot(fig_agentes, filename=str(archivo_agentes), auto_open=False)
-                print(f"  ✅ Distribución por agente guardada: {archivo_agentes}")
-                graficas_exitosas += 1
-            else:
-                print("  ⚠️ No se pudo crear la distribución por agente")
-        except Exception as e:
-            print(f"  ❌ Error en distribución por agente: {e}")
-            logger.error(f"Error en distribución por agente: {e}")
-        
-        # 🔄 6. MANTENER: Tabla de Energía Faltante Horaria (del sistema actual)
-        print("🔹 Creando tabla de energía faltante horaria...")
+        # 5. Tabla de Energía Faltante Horaria (RENUMERADA)
+        print("🔹 [5/8] Creando tabla de energía faltante horaria...")
         graficas_totales += 1
         try:
             fig_energia_horaria = crear_tabla_energia_faltante_horaria(resultados_dict)
             if fig_energia_horaria:
-                archivo_energia_horaria = output_dir / "06_energia_faltante_horaria.html"
+                archivo_energia_horaria = output_dir / "05_energia_faltante_horaria.html"  # RENUMERADA
                 pyo.plot(fig_energia_horaria, filename=str(archivo_energia_horaria), auto_open=False)
-                print(f"  ✅ Tabla de energía faltante horaria guardada: {archivo_energia_horaria}")
+                print(f"  ✅ ÉXITO: {archivo_energia_horaria.name}")
+                archivos_generados.append("05_energia_faltante_horaria.html")
                 graficas_exitosas += 1
             else:
-                print("  ⚠️ No se pudo crear la tabla de energía faltante horaria")
+                print("  ❌ FALLO: No se encontró DEMANDA_FALTANTE")
+                errores_encontrados.append("Tabla horaria: Falta DEMANDA_FALTANTE")
         except Exception as e:
-            print(f"  ❌ Error en tabla de energía faltante horaria: {e}")
+            print(f"  ❌ FALLO: {str(e)[:60]}...")
+            errores_encontrados.append(f"Tabla horaria: {e}")
             logger.error(f"Error en tabla de energía faltante horaria: {e}")
 
-        # 🆕 7. NUEVO: Gráficas por Oferta (Individuales + Consolidada)
-        print("🔹 Creando gráficas por oferta (individuales + consolidada)...")
+        # 6. Tabla de Energía Faltante MW Promedio (RENUMERADA)
+        print("🔹 [6/8] Creando tabla de energía faltante MW promedio...")
+        graficas_totales += 1
+        try:
+            fig_energia_mw = crear_tabla_energia_faltante_mw_promedio(resultados_dict)
+            if fig_energia_mw:
+                archivo_energia_mw = output_dir / "06_energia_faltante_mw_promedio.html"  # RENUMERADA
+                pyo.plot(fig_energia_mw, filename=str(archivo_energia_mw), auto_open=False)
+                print(f"  ✅ ÉXITO: {archivo_energia_mw.name}")
+                archivos_generados.append("06_energia_faltante_mw_promedio.html")
+                graficas_exitosas += 1
+            else:
+                print("  ❌ FALLO: No se encontró DEMANDA_FALTANTE")
+                errores_encontrados.append("Tabla MW: Falta DEMANDA_FALTANTE")
+        except Exception as e:
+            print(f"  ❌ FALLO: {str(e)[:60]}...")
+            errores_encontrados.append(f"Tabla MW: {e}")
+            logger.error(f"Error en tabla MW promedio: {e}")
+
+        # 7. Gráfica de Energía por Años (RENUMERADA)
+        print("🔹 [7/8] Creando gráfica de energía por años...")
+        graficas_totales += 1
+        try:
+            fig_energia_anos = crear_grafica_energia_por_anos(resultados_dict)
+            if fig_energia_anos:
+                archivo_energia_anos = output_dir / "07_energia_por_anos.html"  # RENUMERADA
+                pyo.plot(fig_energia_anos, filename=str(archivo_energia_anos), auto_open=False)
+                print(f"  ✅ ÉXITO: {archivo_energia_anos.name}")
+                archivos_generados.append("07_energia_por_anos.html")
+                graficas_exitosas += 1
+            else:
+                print("  ❌ FALLO: No se encontraron datos por años")
+                errores_encontrados.append("Gráfica anual: Sin datos por años")
+        except Exception as e:
+            print(f"  ❌ FALLO: {str(e)[:60]}...")
+            errores_encontrados.append(f"Gráfica anual: {e}")
+            logger.error(f"Error en gráfica anual: {e}")
+        
+        # 8. Gráficas por Oferta (Individuales + Consolidada) (RENUMERADA)
+        print("🔹 [8/8] Creando gráficas por oferta (individuales + consolidada)...")
         graficas_totales += 1
         resultado_ofertas = {}
         try:
@@ -163,65 +204,83 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
             reporte_individuales = resultado_ofertas.get('reporte_individuales')
             
             if graficas_individuales or grafica_consolidada:
-                print(f"  ✅ Gráficas por oferta completadas:")
+                print(f"  ✅ ÉXITO: Gráficas por oferta completadas")
                 print(f"    - Individuales: {len(graficas_individuales)} ofertas")
-                print(f"    - Consolidada: {'✅ Creada' if grafica_consolidada else '❌ Error'}")
+                print(f"    - Consolidada: {'✅' if grafica_consolidada else '❌'}")
                 if reporte_individuales:
-                    print(f"    - Reporte individuales: {reporte_individuales.name}")
+                    print(f"    - Reporte: {reporte_individuales.name}")
+                    archivos_generados.append("reporte_ofertas.html")
+                if grafica_consolidada:
+                    archivos_generados.append("08_consolidado_ofertas.html")  # RENUMERADA
+                archivos_generados.extend([f"oferta_{nome}.html" for nome in graficas_individuales.keys()])
                 graficas_exitosas += 1
             else:
-                print("  ⚠️ No se pudieron crear gráficas por oferta")
+                print("  ❌ FALLO: No se pudieron crear gráficas por oferta")
+                errores_encontrados.append("Ofertas: Sin gráficas generadas")
         except Exception as e:
-            print(f"  ❌ Error en gráficas por oferta: {e}")
+            print(f"  ❌ FALLO: {str(e)[:60]}...")
+            errores_encontrados.append(f"Ofertas: {e}")
             logger.error(f"Error en gráficas por oferta: {e}")
 
-        # 8. Reporte HTML Consolidado MEJORADO (con navegación del sistema anterior)
-        print("🔹 Creando reporte HTML consolidado con navegación mejorada...")
+        # 9. Reporte HTML Consolidado
+        print("🔹 [+] Creando reporte HTML consolidado...")
         try:
             crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, resultado_ofertas)
-            print(f"  ✅ Reporte HTML consolidado con navegación mejorada creado")
-            graficas_exitosas += 1
+            print(f"  ✅ ÉXITO: reporte_consolidado.html")
+            archivos_generados.append("reporte_consolidado.html")
         except Exception as e:
-            print(f"  ❌ Error en reporte HTML: {e}")
+            print(f"  ❌ FALLO: {str(e)[:60]}...")
+            errores_encontrados.append(f"Reporte HTML: {e}")
             logger.error(f"Error en reporte HTML: {e}")
         
-        # Resumen final MEJORADO
-        print(f"\n📈 Resumen de visualizaciones COMPLETAS:")
-        print(f"   ✅ Exitosas: {graficas_exitosas}")
-        print(f"   ❌ Fallidas: {graficas_totales - graficas_exitosas}")
-        print(f"   📁 Ubicación: {output_dir}")
-        print(f"   📊 Tipos generados:")
-        print(f"     - Gráfica principal de energía")
-        print(f"     - Resumen general de adjudicación")
-        print(f"     - Gráfica de torta de distribución")
-        print(f"     - Mapa de calor mensual")
-        print(f"     - Distribución por agente")
-        print(f"     - Tabla de energía faltante horaria")
+        # RESUMEN FINAL DETALLADO
+        print(f"\n" + "="*60)
+        print(f"📈 RESUMEN FINAL DE VISUALIZACIONES (SIN AGENTES)")
+        print(f"="*60)
+        print(f"✅ EXITOSAS: {graficas_exitosas}/{graficas_totales}")
+        print(f"❌ FALLIDAS: {len(errores_encontrados)}")
+        print(f"📁 UBICACIÓN: {output_dir}")
+        print(f"")
         
+        if archivos_generados:
+            print(f"📊 ARCHIVOS GENERADOS ({len(archivos_generados)}):")
+            for i, archivo in enumerate(sorted(archivos_generados), 1):
+                print(f"   {i:2d}. {archivo}")
+        
+        if errores_encontrados:
+            print(f"\n❌ ERRORES ENCONTRADOS ({len(errores_encontrados)}):")
+            for i, error in enumerate(errores_encontrados, 1):
+                print(f"   {i:2d}. {error}")
+        
+        # Información de las gráficas por oferta
         if resultado_ofertas:
             graficas_individuales = resultado_ofertas.get('individuales', {})
             grafica_consolidada = resultado_ofertas.get('consolidada')
-            print(f"     - Gráficas por oferta: {len(graficas_individuales)} individuales")
-            print(f"     - Gráfica consolidada: {'✅ Creada' if grafica_consolidada else '❌ Error'}")
+            print(f"\n🏢 GRÁFICAS POR OFERTA:")
+            print(f"   - Individuales: {len(graficas_individuales)} ofertas")
+            print(f"   - Consolidada: {'✅ Generada' if grafica_consolidada else '❌ Error'}")
         
         if graficas_exitosas > 0:
-            print(f"\n🎉 ¡Se generaron {graficas_exitosas} tipos de visualizaciones exitosamente!")
+            print(f"\n🎉 ¡PROCESO COMPLETADO!")
             print(f"🌐 Archivo principal: {output_dir / 'reporte_consolidado.html'}")
             print(f"💡 Abre el archivo HTML en tu navegador para ver todas las gráficas")
+            print(f"="*60)
             return True
         else:
-            print(f"\n⚠️ No se pudieron generar visualizaciones")
+            print(f"\n⚠️ NO SE GENERARON VISUALIZACIONES")
+            print(f"🔧 Revisa los errores arriba para diagnóstico")
+            print(f"="*60)
             return False
             
     except Exception as e:
-        logger.exception(f"Error general en generación de reporte fusionado: {e}")
-        print(f"❌ Error general: {e}")
+        logger.exception(f"Error general en generación de reporte sin agentes: {e}")
+        print(f"❌ ERROR CRÍTICO: {e}")
         return False
 
 def crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, resultado_ofertas=None):
     """
-    Crea un reporte HTML consolidado con TODAS las gráficas y navegación mejorada.
-    FUSIONADO: Combina el estilo del sistema anterior con todas las funcionalidades actuales.
+    Crea un reporte HTML consolidado SIN distribución por agente.
+    Solo incluye las gráficas esenciales y consolidado de ofertas.
     
     Args:
         resultados_dict (dict): Diccionario con los resultados
@@ -234,14 +293,13 @@ def crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, result
         fig_resumen = crear_grafica_resumen_general(resultados_dict)
         fig_torta = crear_grafica_torta_adjudicacion(resultados_dict)
         fig_mapa_calor = crear_mapa_calor_mensual(resultados_dict)
-        fig_agentes = crear_distribucion_por_agente(resultados_dict)
-        fig_energia_horaria = crear_tabla_energia_faltante_horaria(resultados_dict)  # 🔄 AGREGADA
+        fig_energia_horaria = crear_tabla_energia_faltante_horaria(resultados_dict)
         
         # Extraer datos de ofertas
         graficas_individuales = resultado_ofertas.get('individuales', {}) if resultado_ofertas else {}
         grafica_consolidada = resultado_ofertas.get('consolidada') if resultado_ofertas else None
         
-        # Generar HTML consolidado MEJORADO (con navegación del sistema anterior)
+        # Generar HTML consolidado SIN DISTRIBUCIÓN POR AGENTE
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -327,7 +385,7 @@ def crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, result
             <div class="header">
                 <h1>📊 REPORTE DE OPTIMIZACIÓN ENERGÉTICA</h1>
                 <h2>Análisis Completo de Asignación de Ofertas</h2>
-                <p><strong>Reporte consolidado con todas las visualizaciones disponibles</strong></p>
+                <p><strong>Reporte consolidado con visualizaciones esenciales</strong></p>
             </div>
             
             <div class="navigation">
@@ -335,8 +393,7 @@ def crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, result
                 <a href="#generales" class="nav-button">📈 Gráficas Generales</a>
                 <a href="#avanzadas" class="nav-button">🔬 Análisis Avanzados</a>
                 <a href="#consolidada" class="nav-button">🎯 Consolidado Ofertas</a>
-                <a href="#ofertas" class="nav-button">📋 Ofertas Individuales</a>
-                <a href="reporte_ofertas.html" class="nav-button" target="_blank">📄 Reporte Detallado</a>
+                <a href="reporte_ofertas.html" class="nav-button" target="_blank">📋 Análisis por Ofertas</a>
             </div>
         """
         
@@ -388,7 +445,7 @@ def crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, result
         
         html_content += "</div>"  # Cerrar sección generales
         
-        # 🔄 NUEVA SECCIÓN: Análisis Avanzados (incluye mapa de calor, distribución por agente, energía faltante horaria)
+        # SECCIÓN: Análisis Avanzados (SIN DISTRIBUCIÓN POR AGENTE)
         html_content += """
             <div id="avanzadas">
                 <h2 style="color: #e74c3c; border-bottom: 2px solid #e74c3c; padding-bottom: 10px;">
@@ -412,34 +469,47 @@ def crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, result
             </div>
             """
         
-        # Distribución por agente
-        if fig_agentes:
-            html_content += f"""
-            <div class="grafica-container">
-                <h3>🔹 Distribución por Agente</h3>
-                <div class="descripcion">
-                    Análisis de distribución de energía asignada y no asignada por cada agente participante.
-                </div>
-                <div style="text-align: center; margin: 10px 0;">
-                    <a href="05_distribucion_agentes.html" class="nav-button" target="_blank">
-                        🏢 Ver Distribución Completa
-                    </a>
-                </div>
-            </div>
-            """
-        
-        # 🔄 NUEVA: Tabla de energía faltante horaria
+        # Tabla de energía faltante horaria (RENUMERADA)
         if fig_energia_horaria:
             html_content += f"""
             <div class="grafica-container">
                 <h3>🔹 Energía Faltante Horaria Mensual por Año</h3>
                 <div class="descripcion">
-                    Tabla detallada que muestra la energía faltante (GWh) desglosada por año, mes y hora.
-                    Permite identificar patrones temporales de déficit energético con granularidad horaria.
+                    Tabla detallada que muestra la energía faltante (GW-total) desglosada por año, mes y hora.
                 </div>
                 <div style="text-align: center; margin: 10px 0;">
-                    <a href="06_energia_faltante_horaria.html" class="nav-button" target="_blank">
+                    <a href="05_energia_faltante_horaria.html" class="nav-button" target="_blank">
                         📊 Ver Tabla Horaria Completa
+                    </a>
+                </div>
+            </div>
+            """
+        
+        # Tabla MW promedio (RENUMERADA)
+        html_content += f"""
+        <div class="grafica-container">
+            <h3>🔹 Energía Faltante MW (promedio diario)</h3>
+            <div class="descripcion">
+                Promedio diario por mes: (GW-total ÷ días del mes) × 1000 = MW promedio.
+            </div>
+            <div style="text-align: center; margin: 10px 0;">
+                <a href="06_energia_faltante_mw_promedio.html" class="nav-button" target="_blank">
+                    ⚡ Ver Tabla MW Promedio
+                </a>
+            </div>
+        </div>
+        """
+        
+        # Gráfica de energía por años (RENUMERADA)
+        html_content += f"""
+            <div class="grafica-container">
+                <h3>🔹 Energía Asignada y No Asignada por Año</h3>
+                <div class="descripcion">
+                    Visualización anual de la distribución de energía con análisis de tendencias.
+                </div>
+                <div style="text-align: center; margin: 10px 0;">
+                    <a href="07_energia_por_anos.html" class="nav-button" target="_blank">
+                        📅 Ver Análisis Anual Completo
                     </a>
                 </div>
             </div>
@@ -447,7 +517,7 @@ def crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, result
         
         html_content += "</div>"  # Cerrar sección avanzadas
         
-        # 🆕 SECCIÓN: Gráfica Consolidada de Ofertas
+        # SECCIÓN: Gráfica Consolidada de Ofertas (RENUMERADA)
         if grafica_consolidada:
             html_content += f"""
             <div id="consolidada">
@@ -461,7 +531,7 @@ def crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, result
                     <p>Compare fácilmente volúmenes asignados y precios entre todas las ofertas por período.</p>
                     
                     <div style="text-align: center; margin: 20px 0;">
-                        <a href="{grafica_consolidada.name}" class="oferta-link consolidada-button" target="_blank">
+                        <a href="08_consolidado_ofertas.html" class="oferta-link consolidada-button" target="_blank">
                             🎯 VER GRÁFICA CONSOLIDADA COMPLETA
                         </a>
                     </div>
@@ -480,30 +550,34 @@ def crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, result
             </div>
             """
         
-        # Sección de ofertas individuales
+        # SECCIÓN: Análisis Individual por Ofertas
         if graficas_individuales:
             html_content += f"""
             <div id="ofertas">
                 <h2 style="color: #1f4e79; border-bottom: 2px solid #1f4e79; padding-bottom: 10px;">
-                    📋 GRÁFICAS INDIVIDUALES POR OFERTA ({len(graficas_individuales)} ofertas)
+                    📋 ANÁLISIS INDIVIDUAL POR OFERTAS
                 </h2>
                 
                 <div class="ofertas-section">
                     <h3>🔍 Análisis Detallado por Oferta Individual</h3>
-                    <p>Cada oferta tiene su propia gráfica detallada con información específica.</p>
-                    <p><strong>Haga clic en cualquier oferta para ver su análisis individual:</strong></p>
-            """
-            
-            # Agregar enlaces a cada gráfica individual
-            for nombre_oferta, archivo_grafica in sorted(graficas_individuales.items()):
-                nombre_archivo = archivo_grafica.name
-                html_content += f"""
-                    <a href="{nombre_archivo}" class="oferta-link" target="_blank">
-                        {nombre_oferta}
-                    </a>
-                """
-            
-            html_content += """
+                    <p>Se procesaron <strong>{len(graficas_individuales)} ofertas individuales</strong> con gráficas detalladas.</p>
+                    <p><strong>Haga clic en el botón para ver el reporte completo de ofertas:</strong></p>
+                    
+                    <div style="text-align: center; margin: 20px 0;">
+                        <a href="reporte_ofertas.html" class="oferta-link consolidada-button" target="_blank">
+                            📊 VER REPORTE COMPLETO DE OFERTAS ({len(graficas_individuales)} ofertas)
+                        </a>
+                    </div>
+                    
+                    <div style="background-color: white; padding: 15px; border-radius: 5px; margin-top: 15px;">
+                        <h4 style="color: #1f4e79; margin-top: 0;">💡 El reporte de ofertas incluye:</h4>
+                        <ul style="color: #666; font-size: 13px;">
+                            <li><strong>Gráficas individuales:</strong> Análisis específico de cada oferta</li>
+                            <li><strong>Navegación fácil:</strong> Botones para alternar entre ofertas</li>
+                            <li><strong>Datos detallados:</strong> Energía asignada, precios y evolución temporal</li>
+                            <li><strong>Comparación visual:</strong> Barras y líneas para análisis completo</li>
+                        </ul>
+                    </div>
                 </div>
             </div>
             """
@@ -550,8 +624,9 @@ def crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, result
         with open(archivo_consolidado, 'w', encoding='utf-8') as f:
             f.write(html_content)
         
-        logger.info(f"Reporte HTML consolidado fusionado creado: {archivo_consolidado}")
+        logger.info(f"Reporte HTML consolidado SIN agentes creado: {archivo_consolidado}")
         
     except Exception as e:
-        logger.error(f"Error al crear reporte HTML consolidado fusionado: {e}")
+        logger.error(f"Error al crear reporte HTML consolidado sin agentes: {e}")
         raise
+    

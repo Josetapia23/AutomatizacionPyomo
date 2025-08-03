@@ -3,6 +3,7 @@ Punto de entrada principal para el sistema de optimización energética con Pyom
 Este módulo coordina el flujo de trabajo completo del sistema.
 """
 
+import datetime
 import os
 import sys
 import pandas as pd
@@ -55,48 +56,341 @@ logger = logging.getLogger(__name__)
 def leer_demanda(archivo=DATOS_INICIALES, hoja="DEMANDA"):
     """
     Lee los datos de demanda desde el archivo Excel.
+    VERSIÓN ROBUSTA: Maneja automáticamente fechas vacías, formatos inconsistentes
+    y archivos editados por múltiples usuarios.
     
     Args:
         archivo (Path): Ruta al archivo Excel
         hoja (str): Nombre de la hoja con datos de demanda
         
     Returns:
-        DataFrame: DataFrame con los datos de demanda, o None en caso de error
+        DataFrame: DataFrame con los datos de demanda limpios, o None en caso de error
     """
     logger.info(f"Leyendo datos de demanda desde {archivo} (hoja: {hoja})")
+    print(f"📊 Leyendo demanda desde: {hoja}")
     
     if not verificar_archivo_existe(archivo):
         return None
     
-    # Leer datos
-    demanda_raw = leer_excel_seguro(archivo, hoja)
-    if demanda_raw.empty:
+    # Leer datos sin procesar
+    try:
+        demanda_raw = leer_excel_seguro(archivo, hoja)
+        if demanda_raw.empty:
+            print("❌ ERROR: La hoja de demanda está vacía")
+            return None
+    except Exception as e:
+        print(f"❌ ERROR: No se pudo leer la hoja {hoja}: {e}")
         return None
     
-    # Convertir formato de columnas de horas a filas
+    print(f"📋 Archivo leído: {demanda_raw.shape[0]} filas, {demanda_raw.shape[1]} columnas")
+    
+    # LIMPIEZA ROBUSTA DE DATOS
     try:
-        # Obtener solo las columnas numéricas (horas)
+        # 1. IDENTIFICAR Y LIMPIAR FECHAS VACÍAS
+        print("🧹 Limpiando fechas vacías y valores nulos...")
+        
+        filas_originales = len(demanda_raw)
+        
+        # Eliminar filas donde FECHA es nulo/vacío
+        demanda_raw = demanda_raw.dropna(subset=['FECHA'])
+        
+        # Eliminar filas donde FECHA es string vacío
+        demanda_raw = demanda_raw[demanda_raw['FECHA'].astype(str).str.strip() != '']
+        
+        filas_despues_limpieza = len(demanda_raw)
+        filas_eliminadas = filas_originales - filas_despues_limpieza
+        
+        if filas_eliminadas > 0:
+            print(f"   ✅ Eliminadas {filas_eliminadas} filas con fechas vacías")
+            print(f"   📊 Filas útiles: {filas_despues_limpieza}")
+        
+        if demanda_raw.empty:
+            print("❌ ERROR: No quedan filas válidas después de limpiar fechas")
+            return None
+        
+        # 2. IDENTIFICAR COLUMNAS DE HORAS Y LIMPIAR
+        print("🔢 Identificando columnas de horas...")
+        
+        # Obtener todas las columnas excepto FECHA
         hour_cols = [col for col in demanda_raw.columns if col != "FECHA"]
+        
+        # Filtrar solo columnas numéricas (horas 1-24)
+        hour_cols_validas = []
+        for col in hour_cols:
+            try:
+                col_num = int(col)
+                if 1 <= col_num <= 24:
+                    hour_cols_validas.append(col)
+            except (ValueError, TypeError):
+                # Si no es número, intentar otros formatos comunes
+                col_str = str(col).strip().upper()
+                if col_str.startswith('H') or col_str.startswith('HORA'):
+                    # Extraer número de "H1", "HORA1", etc.
+                    numero = ''.join(filter(str.isdigit, col_str))
+                    if numero and 1 <= int(numero) <= 24:
+                        hour_cols_validas.append(col)
+        
+        print(f"   ✅ Columnas de horas detectadas: {len(hour_cols_validas)}")
+        
+        if len(hour_cols_validas) == 0:
+            print("❌ ERROR: No se encontraron columnas de horas válidas")
+            print(f"   🔍 Columnas disponibles: {list(demanda_raw.columns)}")
+            return None
+        
+        # 3. LIMPIAR FILAS SIN DATOS DE DEMANDA
+        print("🧹 Limpiando filas sin datos de demanda...")
+        
+        # Eliminar filas donde TODAS las columnas de horas son 0 o nulas
+        filas_antes = len(demanda_raw)
+        
+        # Calcular suma de demanda por fila
+        demanda_raw['_suma_demanda'] = demanda_raw[hour_cols_validas].sum(axis=1, skipna=True)
+        
+        # Mantener solo filas con demanda > 0
+        demanda_raw = demanda_raw[demanda_raw['_suma_demanda'] > 0]
+        
+        # Eliminar columna auxiliar
+        demanda_raw = demanda_raw.drop(columns=['_suma_demanda'])
+        
+        filas_despues = len(demanda_raw)
+        filas_sin_demanda = filas_antes - filas_despues
+        
+        if filas_sin_demanda > 0:
+            print(f"   ✅ Eliminadas {filas_sin_demanda} filas sin demanda")
+        
+        if demanda_raw.empty:
+            print("❌ ERROR: No quedan filas con demanda válida")
+            return None
+        
+        # 4. CONVERSIÓN ROBUSTA DE FECHAS
+        print("📅 Convirtiendo fechas de manera robusta...")
+        
+        fechas_convertidas = []
+        fechas_problematicas = []
+        
+        for idx, fecha_original in enumerate(demanda_raw['FECHA']):
+            fecha_convertida = None
+            
+            try:
+                if pd.isna(fecha_original):
+                    continue  # Ya eliminamos estas, pero por si acaso
+                
+                # Si ya es datetime, convertir directamente
+                if hasattr(fecha_original, 'date'):
+                    fecha_convertida = fecha_original.date()
+                elif isinstance(fecha_original, str):
+                    # Intentar múltiples formatos comunes
+                    formatos = ['%d/%m/%Y', '%m/%d/%Y', '%Y-%m-%d', '%d-%m-%Y']
+                    for formato in formatos:
+                        try:
+                            fecha_convertida = datetime.strptime(fecha_original.strip(), formato).date()
+                            break
+                        except ValueError:
+                            continue
+                else:
+                    # Intentar conversión automática de pandas
+                    fecha_convertida = pd.to_datetime(fecha_original, errors='coerce')
+                    if not pd.isna(fecha_convertida):
+                        fecha_convertida = fecha_convertida.date()
+                    else:
+                        fecha_convertida = None
+                
+                if fecha_convertida:
+                    fechas_convertidas.append(fecha_convertida)
+                else:
+                    fechas_problematicas.append((idx, fecha_original))
+                    
+            except Exception as e:
+                fechas_problematicas.append((idx, f"Error: {e}"))
+        
+        if fechas_problematicas:
+            print(f"   ⚠️ {len(fechas_problematicas)} fechas no se pudieron convertir:")
+            for i, (idx, fecha) in enumerate(fechas_problematicas[:5]):  # Mostrar máximo 5
+                print(f"      {i+1}. Fila {idx}: '{fecha}'")
+            if len(fechas_problematicas) > 5:
+                print(f"      ... y {len(fechas_problematicas) - 5} más")
+        
+        if not fechas_convertidas:
+            print("❌ ERROR: No se pudieron convertir ninguna fecha")
+            return None
+        
+        print(f"   ✅ Fechas convertidas exitosamente: {len(fechas_convertidas)}")
+        
+        # Filtrar demanda_raw para mantener solo filas con fechas válidas
+        indices_validos = [i for i, fecha in enumerate(demanda_raw['FECHA']) 
+                          if any(fecha == orig for orig in demanda_raw['FECHA'][:len(fechas_convertidas)])]
+        
+        demanda_raw = demanda_raw.iloc[:len(fechas_convertidas)].copy()
+        demanda_raw['FECHA'] = fechas_convertidas
+        
+        # 5. CONVERTIR A FORMATO LARGO (MELT)
+        print("🔄 Convirtiendo a formato largo...")
         
         # Hacer melt para convertir de formato ancho a largo
         demanda_melted = demanda_raw.melt(
             id_vars="FECHA", 
-            value_vars=hour_cols,
+            value_vars=hour_cols_validas,
             var_name="HORA", 
             value_name="DEMANDA"
         )
         
-        # Convertir tipos de datos
-        demanda_melted['FECHA'] = pd.to_datetime(demanda_melted['FECHA'], dayfirst=True).dt.date
+        # Convertir HORA a entero
         demanda_melted['HORA'] = demanda_melted['HORA'].astype(int)
-        demanda_melted['DEMANDA'] = demanda_melted['DEMANDA'].astype(float)
         
-        logger.info(f"Datos de demanda leídos correctamente: {len(demanda_melted)} registros")
+        # Convertir DEMANDA a float
+        demanda_melted['DEMANDA'] = pd.to_numeric(demanda_melted['DEMANDA'], errors='coerce')
+        
+        # Eliminar filas con demanda nula o negativa
+        demanda_melted = demanda_melted.dropna(subset=['DEMANDA'])
+        demanda_melted = demanda_melted[demanda_melted['DEMANDA'] >= 0]
+        
+        # 6. VALIDACIÓN FINAL Y ESTADÍSTICAS
+        print("✅ Validación final de datos...")
+        
+        fechas_unicas = len(demanda_melted['FECHA'].unique())
+        horas_por_fecha = len(demanda_melted) // fechas_unicas if fechas_unicas > 0 else 0
+        demanda_total = demanda_melted['DEMANDA'].sum()
+        
+        fecha_min = demanda_melted['FECHA'].min()
+        fecha_max = demanda_melted['FECHA'].max()
+        
+        print(f"📊 DATOS FINALES LIMPIOS:")
+        print(f"   ✅ Registros totales: {len(demanda_melted):,}")
+        print(f"   📅 Fechas únicas: {fechas_unicas}")
+        print(f"   ⏰ Horas por fecha: {horas_por_fecha}")
+        print(f"   📅 Rango: {fecha_min} a {fecha_max}")
+        print(f"   ⚡ Demanda total: {demanda_total:,.2f} kWh")
+        
+        # Verificación de completitud
+        horas_esperadas = len(hour_cols_validas)
+        if horas_por_fecha < horas_esperadas:
+            print(f"   ⚠️ ADVERTENCIA: Se esperaban {horas_esperadas} horas por fecha, pero se encontraron {horas_por_fecha}")
+        
+        logger.info(f"Datos de demanda procesados: {len(demanda_melted)} registros, {fechas_unicas} fechas")
+        
         return demanda_melted
     
     except Exception as e:
         logger.error(f"Error al procesar datos de demanda: {e}")
+        print(f"❌ ERROR CRÍTICO al procesar demanda: {e}")
+        print(f"🔍 DEBUG - Forma original: {demanda_raw.shape if 'demanda_raw' in locals() else 'No disponible'}")
         return None
+
+def validar_datos_para_pyomo(demanda_df, ofertas_df):
+    """
+    Validación robusta de datos antes de pasarlos a Pyomo.
+    Evita que datos problemáticos lleguen al optimizador.
+    
+    Args:
+        demanda_df (DataFrame): Datos de demanda
+        ofertas_df (DataFrame): Datos de ofertas
+        
+    Returns:
+        tuple: (bool, str) - (es_valido, mensaje_error)
+    """
+    print("🔍 VALIDACIÓN ROBUSTA PARA PYOMO...")
+    
+    errores = []
+    advertencias = []
+    
+    # 1. VALIDAR DEMANDA
+    if demanda_df is None or demanda_df.empty:
+        errores.append("❌ DataFrame de demanda vacío")
+    else:
+        # Verificar columnas obligatorias
+        columnas_requeridas = ['FECHA', 'HORA', 'DEMANDA']
+        for col in columnas_requeridas:
+            if col not in demanda_df.columns:
+                errores.append(f"❌ Columna faltante en demanda: {col}")
+        
+        if not errores:  # Solo continuar si no hay errores básicos
+            # Verificar tipos de datos
+            fechas_invalidas = demanda_df['FECHA'].isna().sum()
+            if fechas_invalidas > 0:
+                errores.append(f"❌ {fechas_invalidas} fechas inválidas en demanda")
+            
+            # Verificar rango de horas
+            horas_min = demanda_df['HORA'].min()
+            horas_max = demanda_df['HORA'].max()
+            if horas_min < 1 or horas_max > 24:
+                errores.append(f"❌ Horas fuera de rango (1-24): {horas_min}-{horas_max}")
+            
+            # Verificar demanda negativa
+            demanda_negativa = (demanda_df['DEMANDA'] < 0).sum()
+            if demanda_negativa > 0:
+                advertencias.append(f"⚠️ {demanda_negativa} valores de demanda negativos")
+            
+            # Verificar demanda cero
+            demanda_cero = (demanda_df['DEMANDA'] == 0).sum()
+            if demanda_cero > 0:
+                advertencias.append(f"⚠️ {demanda_cero} valores de demanda en cero")
+            
+            print(f"   📊 Demanda - Fechas: {len(demanda_df['FECHA'].unique())}, Registros: {len(demanda_df)}")
+    
+    # 2. VALIDAR OFERTAS
+    if ofertas_df is None or ofertas_df.empty:
+        errores.append("❌ DataFrame de ofertas vacío")
+    else:
+        # Verificar columnas obligatorias
+        columnas_requeridas = ['CÓDIGO OFERTA', 'FECHA', 'Atributo', 'CANTIDAD', 'PRECIO INDEXADO', 'EVALUACIÓN']
+        for col in columnas_requeridas:
+            if col not in ofertas_df.columns:
+                errores.append(f"❌ Columna faltante en ofertas: {col}")
+        
+        if not errores:  # Solo continuar si no hay errores básicos
+            # Verificar fechas
+            fechas_invalidas = ofertas_df['FECHA'].isna().sum()
+            if fechas_invalidas > 0:
+                errores.append(f"❌ {fechas_invalidas} fechas inválidas en ofertas")
+            
+            # Verificar ofertas válidas
+            ofertas_validas = (ofertas_df['EVALUACIÓN'] == 1).sum()
+            ofertas_total = len(ofertas_df)
+            
+            if ofertas_validas == 0:
+                errores.append("❌ No hay ofertas con EVALUACIÓN = 1")
+            else:
+                print(f"   📊 Ofertas - Válidas: {ofertas_validas}/{ofertas_total}")
+            
+            # Verificar códigos de oferta
+            ofertas_unicas = len(ofertas_df['CÓDIGO OFERTA'].unique())
+            print(f"   🏢 Ofertas únicas: {ofertas_unicas}")
+    
+    # 3. VALIDAR COMPATIBILIDAD ENTRE DEMANDA Y OFERTAS
+    if not errores and demanda_df is not None and ofertas_df is not None:
+        # Verificar overlap de fechas
+        fechas_demanda = set(demanda_df['FECHA'].unique())
+        fechas_ofertas = set(ofertas_df['FECHA'].unique())
+        
+        fechas_comunes = fechas_demanda.intersection(fechas_ofertas)
+        fechas_solo_demanda = fechas_demanda - fechas_ofertas
+        fechas_solo_ofertas = fechas_ofertas - fechas_demanda
+        
+        print(f"   📅 Fechas comunes: {len(fechas_comunes)}")
+        
+        if len(fechas_comunes) == 0:
+            errores.append("❌ No hay fechas comunes entre demanda y ofertas")
+        
+        if fechas_solo_demanda:
+            advertencias.append(f"⚠️ {len(fechas_solo_demanda)} fechas solo en demanda")
+        
+        if fechas_solo_ofertas:
+            advertencias.append(f"⚠️ {len(fechas_solo_ofertas)} fechas solo en ofertas")
+    
+    # 4. MOSTRAR RESULTADOS
+    if errores:
+        print(f"❌ ERRORES CRÍTICOS ENCONTRADOS:")
+        for error in errores:
+            print(f"   {error}")
+        return False, "; ".join(errores)
+    
+    if advertencias:
+        print(f"⚠️ ADVERTENCIAS (no bloquean la ejecución):")
+        for advertencia in advertencias:
+            print(f"   {advertencia}")
+    
+    print(f"✅ Validación completada - Datos aptos para Pyomo")
+    return True, "Validación exitosa"
 
 def calcular_estadisticas_correctas(resultados_dict):
     """
@@ -385,7 +679,6 @@ def procesar_ofertas_solo_tabla():
         print(f"❌ ERROR INESPERADO: {e}")
         return False
 
-
 def optimizar_con_pyomo():
     """
     Ejecuta SOLO el proceso de optimización con Pyomo y exporta los resultados
@@ -414,6 +707,21 @@ def optimizar_con_pyomo():
             return False
         
         print(f"✅ Ofertas cargadas: {len(ofertas_df)} válidas de {len(ofertas_df_completas)} totales")
+        
+        # VALIDACIÓN ROBUSTA antes de construir modelo
+        print("\n🛡️ === VALIDACIÓN ROBUSTA DE DATOS ===")
+        es_valido, mensaje = validar_datos_para_pyomo(demanda_df, ofertas_df)
+        
+        if not es_valido:
+            print(f"❌ ERROR: Datos no válidos para optimización")
+            print(f"   📝 Detalle: {mensaje}")
+            print(f"💡 Soluciones sugeridas:")
+            print(f"   1. Revisar archivo de demanda en Excel")
+            print(f"   2. Verificar procesamiento de ofertas (opción 4)")
+            print(f"   3. Comprobar formatos de fecha consistentes")
+            return False
+        
+        print(f"✅ Datos validados correctamente - Procediendo con optimización")
         
         # Construir modelo de optimización
         print("\n=== CONSTRUYENDO MODELO DE OPTIMIZACIÓN ===")
@@ -635,7 +943,6 @@ def generar_visualizaciones_automatico():
         print("   3. Intentar ejecutar la opción 5 nuevamente para generar resultados frescos")
         print("   4. Verificar instalación de dependencias: plotly, matplotlib")
         return False
-
 
 def generar_solo_visualizaciones():
     """
