@@ -749,21 +749,18 @@ def generar_reporte_consolidado_ofertas(graficas_creadas, output_dir, resultados
     return archivo_consolidado
 
 
-def crear_grafica_consolidada_ofertas(resultados_dict):
+def crear_grafica_consolidada_ofertas_simplificada(resultados_dict):
     """
-    Crea una sola gráfica que muestra todas las ofertas consolidadas.
-    MEJORADO: Barras APILADAS por fecha con diferentes ofertas y líneas de precios.
-    
-    Args:
-        resultados_dict (dict): Diccionario con los resultados de la optimización
-        
-    Returns:
-        plotly.graph_objects.Figure: Figura de la gráfica consolidada
+    Dashboard SIMPLIFICADO: Solo 2 gráficas con filtros funcionales.
+    ✅ Energía (arriba) + Precios (abajo)
+    ✅ Filtros por año que funcionan
+    ✅ Colores contrastantes
+    ✅ Legibilidad mejorada
     """
-    logger.info("Creando gráfica consolidada de todas las ofertas (barras apiladas)")
+    logger.info("Creando dashboard SIMPLIFICADO con filtros funcionales")
     
     if "RESUMEN EJECUTIVO" not in resultados_dict:
-        logger.warning("No se encontró RESUMEN EJECUTIVO para gráfica consolidada")
+        logger.warning("No se encontró RESUMEN EJECUTIVO")
         return None
     
     resumen_df = resultados_dict["RESUMEN EJECUTIVO"]
@@ -772,205 +769,303 @@ def crear_grafica_consolidada_ofertas(resultados_dict):
         logger.warning("RESUMEN EJECUTIVO está vacío")
         return None
     
-    # Extraer todas las ofertas
-    ofertas_encontradas = set()
+    # 1. EXTRAER DATOS Y SEPARAR OFERTAS
+    ofertas_adjudicadas = []
+    datos_energia = {}
+    datos_precios = {}
+    
     for col in resumen_df.columns:
         if "CANTIDAD (KWh)" in col:
             oferta = col.replace(" CANTIDAD (KWh)", "")
-            ofertas_encontradas.add(oferta)
+            total_energia = resumen_df[col].sum()
+            
+            # Solo procesar ofertas con energía > 0
+            if total_energia > 0:
+                ofertas_adjudicadas.append((oferta, total_energia))
+                
+                # Datos de energía
+                datos_energia[oferta] = [convert_to_gwh(val) if pd.notna(val) else 0 
+                                       for val in resumen_df[col]]
+                
+                # Datos de precios
+                col_precio = f"{oferta} PRECIO INDEXADO ($/KWh)"
+                if col_precio in resumen_df.columns:
+                    datos_precios[oferta] = [val if pd.notna(val) and val > 0 else None 
+                                           for val in resumen_df[col_precio]]
     
-    ofertas_ordenadas = sorted(list(ofertas_encontradas))
+    # Ordenar por energía total (descendente)
+    ofertas_adjudicadas.sort(key=lambda x: x[1], reverse=True)
+    ofertas_adjudicadas = [x[0] for x in ofertas_adjudicadas]  # Solo nombres
     
-    if not ofertas_ordenadas:
-        logger.warning("No se encontraron ofertas en el resumen ejecutivo")
-        return None
-    
-    print(f"📊 Creando gráfica consolidada (BARRAS APILADAS) para {len(ofertas_ordenadas)} ofertas")
-    
-    # Extraer fechas únicas del resumen
     fechas = resumen_df['FECHA'].tolist()
     
-    # Definir colores para cada oferta (paleta más distintiva y moderna)
-    colores_ofertas = [
-        '#1f4e79',  # Azul oscuro
-        '#2ecc71',  # Verde
-        '#e74c3c',  # Rojo
-        '#f39c12',  # Naranja
-        '#9b59b6',  # Morado
-        '#3498db',  # Azul claro
-        '#e67e22',  # Naranja oscuro
-        '#1abc9c',  # Verde azulado
-        '#34495e',  # Gris oscuro
-        '#c0392b',  # Rojo oscuro
-        '#d35400',  # Naranja rojizo
-        '#8e44ad'   # Morado oscuro
+    # 2. COLORES CONTRASTANTES (máximo 10 ofertas para claridad)
+    import plotly.express as px
+    colores_distinctivos = [
+        '#1f77b4',  # Azul
+        '#ff7f0e',  # Naranja
+        '#2ca02c',  # Verde
+        '#d62728',  # Rojo
+        '#9467bd',  # Morado
+        '#8c564b',  # Marrón
+        '#e377c2',  # Rosa
+        '#7f7f7f',  # Gris
+        '#bcbd22',  # Oliva
+        '#17becf'   # Cian
     ]
     
-    # Crear figura con eje secundario
+    # Limitar a top 10 ofertas para claridad
+    ofertas_top = ofertas_adjudicadas[:10]
+    
+    # 3. CREAR FIGURA CON 2 SUBGRÁFICAS
     fig = make_subplots(
-        specs=[[{"secondary_y": True}]],
-        subplot_titles=["CONSOLIDADO: DEMANDA ASIGNADA Y PRECIOS POR OFERTA (Barras Apiladas)"]
+        rows=2, cols=1,
+        subplot_titles=[
+            "⚡ ENERGÍA ASIGNADA POR PERÍODO (GWh)",
+            "💰 PRECIOS INDEXADOS POR PERÍODO ($/kWh)"
+        ],
+        row_heights=[0.6, 0.4],
+        vertical_spacing=0.15
     )
     
-    # CAMBIO PRINCIPAL: Procesar cada oferta para BARRAS APILADAS
-    for i, oferta in enumerate(ofertas_ordenadas):
-        color_oferta = colores_ofertas[i % len(colores_ofertas)]
+    # 4. GRÁFICA 1: ENERGÍA (barras apiladas)
+    for i, oferta in enumerate(ofertas_top):
+        color = colores_distinctivos[i % len(colores_distinctivos)]
         
-        # Extraer datos de esta oferta
-        col_cantidad = f"{oferta} CANTIDAD (KWh)"
-        col_precio_indexado = f"{oferta} PRECIO INDEXADO ($/KWh)"
-        
-        if col_cantidad in resumen_df.columns:
-            # Convertir cantidades a GWh
-            cantidades_gwh = [convert_to_gwh(val) if pd.notna(val) else 0 
-                            for val in resumen_df[col_cantidad]]
-            
-            # 🆕 CAMBIO: Agregar barras APILADAS en lugar de agrupadas
-            fig.add_trace(
-                go.Bar(
-                    x=fechas,
-                    y=cantidades_gwh,
-                    name=f"{oferta}",
-                    marker_color=color_oferta,
-                    text=[f"{val:.1f}" if val > 0.1 else "" for val in cantidades_gwh],  # Solo mostrar texto si es > 0.1
-                    textposition="inside",
-                    textfont=dict(color="white", size=8, family="Arial Black"),  # Texto más pequeño para barras apiladas
-                    opacity=0.85,
-                    showlegend=True,
-                    # 🔧 Configuración para barras más estilizadas
-                    marker=dict(
-                        line=dict(color="white", width=0.5)  # Borde blanco sutil
-                    )
-                ),
-                secondary_y=False
-            )
-            
-            # Agregar línea de precio indexado (si existe) - SIN CAMBIOS
-            if col_precio_indexado in resumen_df.columns:
-                precios_indexados = [val if pd.notna(val) and val > 0 else None 
-                                   for val in resumen_df[col_precio_indexado]]
+        fig.add_trace(
+            go.Bar(
+                x=fechas,
+                y=datos_energia[oferta],
+                name=oferta,
+                marker_color=color,
+                opacity=0.85,
                 
-                # Solo mostrar línea si hay precios válidos
-                if any(p is not None for p in precios_indexados):
-                    fig.add_trace(
-                        go.Scatter(
-                            x=fechas,
-                            y=precios_indexados,
-                            mode="lines+markers",
-                            name=f"{oferta} Precio",
-                            line=dict(
-                                color=color_oferta,
-                                width=2.5,  # Líneas un poco más gruesas
-                                dash='dot'
-                            ),
-                            marker=dict(
-                                size=7,
-                                color=color_oferta,
-                                line=dict(color="white", width=2),
-                                symbol="circle"
-                            ),
-                            showlegend=True,
-                            connectgaps=False,
-                            # 🆕 Agregar información adicional en hover
-                            hovertemplate=f"<b>{oferta} Precio</b><br>" +
-                                        "Período: %{x}<br>" +
-                                        "Precio: $%{y:.4f}/kWh<br>" +
-                                        "<extra></extra>"
-                        ),
-                        secondary_y=True
-                    )
+                # Texto mejorado
+                text=[f"{val:.1f}" if val > 1 else "" for val in datos_energia[oferta]],
+                textposition="inside",
+                textfont=dict(color="white", size=10, family="Arial Black"),
+                
+                # Bordes para definición
+                marker=dict(line=dict(color="white", width=1)),
+                
+                showlegend=True,
+                legendgroup="energia",
+                
+                # Hover detallado
+                hovertemplate=(
+                    f"<b>{oferta}</b><br>"
+                    "📅 %{x}<br>"
+                    "⚡ %{y:.2f} GWh<br>"
+                    "<extra></extra>"
+                ),
+                
+                # ID para filtros
+                visible=True,
+                meta=dict(tipo="energia", oferta=oferta)
+            ),
+            row=1, col=1
+        )
     
-    # Configurar eje Y principal (GWh) - MEJORADO
+    # 5. GRÁFICA 2: PRECIOS (líneas claras)
+    for i, oferta in enumerate(ofertas_top):
+        if oferta in datos_precios:
+            color = colores_distinctivos[i % len(colores_distinctivos)]
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=fechas,
+                    y=datos_precios[oferta],
+                    mode="lines+markers",
+                    name=oferta,
+                    line=dict(color=color, width=4),
+                    marker=dict(
+                        size=8, 
+                        color=color,
+                        line=dict(color="white", width=2)
+                    ),
+                    showlegend=False,  # No duplicar leyenda
+                    connectgaps=False,
+                    
+                    # Hover específico
+                    hovertemplate=(
+                        f"<b>{oferta}</b><br>"
+                        "📅 %{x}<br>"
+                        "💵 $%{y:.3f}/kWh<br>"
+                        "<extra></extra>"
+                    ),
+                    
+                    # ID para filtros
+                    visible=True,
+                    meta=dict(tipo="precio", oferta=oferta)
+                ),
+                row=2, col=1
+            )
+    
+    # 6. CONFIGURAR EJES
     fig.update_yaxes(
-        title_text="GWh Asignados (Apilados)",
-        title_font=dict(size=14, color="#1f4e79", family="Arial Black"),
-        tickfont=dict(size=12),
+        title_text="GWh",
+        title_font=dict(size=14, color="#1f4e79"),
         showgrid=True,
-        gridcolor="rgba(128,128,128,0.2)",  # Grid más sutil
-        secondary_y=False
+        gridcolor="rgba(128,128,128,0.2)",
+        row=1, col=1
     )
     
-    # Configurar eje Y secundario ($/kWh) - SIN CAMBIOS
     fig.update_yaxes(
-        title_text="Precio Indexado ($/kWh)",
-        title_font=dict(size=14, color="#e74c3c", family="Arial Black"),
-        tickfont=dict(size=12),
+        title_text="$/kWh",
+        title_font=dict(size=14, color="#e74c3c"),
         tickprefix="$ ",
-        showgrid=False,
-        secondary_y=True
+        showgrid=True,
+        gridcolor="rgba(128,128,128,0.2)",
+        row=2, col=1
     )
     
-    # Configurar eje X - MEJORADO
     fig.update_xaxes(
         title_text="PERÍODO",
-        title_font=dict(size=14, family="Arial Black"),
-        tickfont=dict(size=12),
+        title_font=dict(size=14),
         tickangle=45,
-        showgrid=True,
-        gridcolor="rgba(128,128,128,0.2)"  # Grid más sutil
+        tickfont=dict(size=11),
+        row=2, col=1
     )
     
-    # 🆕 CAMBIO PRINCIPAL: Layout con barmode='stack' para barras APILADAS
+    # 7. FILTROS FUNCIONALES POR AÑO (CORREGIDOS)
+    años_disponibles = sorted(list(set([
+        fecha.split('/')[1] if '/' in fecha else fecha[-4:] 
+        for fecha in fechas
+    ])))
+    
+    # Crear botones de filtro que funcionan
+    botones_filtro = []
+    
+    # Botón "Todos" - mostrar todas las trazas
+    botones_filtro.append(
+        dict(
+            label="📅 TODOS LOS AÑOS",
+            method="restyle",
+            args=[{"visible": True}, list(range(len(ofertas_top) * 2))]  # Todas las trazas
+        )
+    )
+    
+    # Botones por año con filtrado correcto
+    for año in años_disponibles:
+        # Para cada año, crear máscara de visibilidad
+        visible_energia = []
+        visible_precios = []
+        
+        for i, oferta in enumerate(ofertas_top):
+            # Verificar si esta oferta tiene datos para el año
+            fechas_oferta = [f for f in fechas if año in f]
+            tiene_datos = len(fechas_oferta) > 0
+            
+            visible_energia.append(tiene_datos)
+            visible_precios.append(tiene_datos)
+        
+        # Combinar visibilidad para energía y precios
+        visible_total = visible_energia + visible_precios
+        
+        botones_filtro.append(
+            dict(
+                label=f"📆 {año}",
+                method="restyle",
+                args=[{"visible": visible_total}, list(range(len(ofertas_top) * 2))]
+            )
+        )
+    
+    # 8. LAYOUT OPTIMIZADO CON LEYENDA A LA DERECHA
     fig.update_layout(
         title={
-            'text': f"CONSOLIDADO: DEMANDA ASIGNADA Y PRECIOS - TODAS LAS OFERTAS<br><sub>📊 Comparación apilada de {len(ofertas_ordenadas)} ofertas por período</sub>",
-            'x': 0.5,
+            'text': f"DASHBOARD CONSOLIDADO - OFERTAS ENERGÉTICAS<br><sub>📊 {len(ofertas_top)} ofertas principales | Vista simplificada con filtros</sub>",
+            'x': 0.4,  # Centrado en el área de gráficas (no incluyendo leyenda)
             'xanchor': 'center',
             'font': {'size': 18, 'color': '#1f4e79', 'family': 'Arial Black'}
         },
-        width=1400,
-        height=700,
-        barmode='stack',  # 🎯 CAMBIO CLAVE: De 'group' a 'stack'
+        
+        # Dimensiones ajustadas para leyenda derecha
+        width=1600,  # Más ancho para leyenda
+        height=900,
+        
+        # Colores
         plot_bgcolor='white',
-        paper_bgcolor='#fafafa',  # Fondo ligeramente gris
+        paper_bgcolor='#fafafa',
+        
+        # Barras apiladas
+        barmode='stack',
+        
+        # LEYENDA MOVIDA A LA DERECHA (en el espacio en blanco)
         legend=dict(
-            orientation="v",
+            orientation="v",  # Vertical
             yanchor="top",
-            y=1,
-            xanchor="left",
-            x=1.02,
+            y=0.95,
+            xanchor="left", 
+            x=1.02,  # A la derecha de las gráficas
             font=dict(size=11, family="Arial"),
-            bordercolor="#cccccc",
-            borderwidth=1,
             bgcolor="rgba(255,255,255,0.95)",
-            # 🆕 Mejorar espaciado en leyenda
+            bordercolor="#1f4e79",
+            borderwidth=2,
+            title=dict(
+                text="<b>📊 OFERTAS PRINCIPALES</b>",
+                font=dict(size=13, color="#1f4e79", family="Arial Black")
+            ),
             itemsizing="constant",
             itemwidth=30
         ),
-        margin=dict(l=80, r=220, t=120, b=100),  # Más margen derecho para leyenda
-        showlegend=True,
-        # 🆕 Añadir configuraciones adicionales para mejor apariencia
-        hovermode='x unified',  # Hover unificado por período
+        
+        # FILTROS FUNCIONALES
+        updatemenus=[
+            dict(
+                type="dropdown",
+                direction="down",
+                x=0.02,
+                y=1.02,
+                xanchor="left",
+                yanchor="bottom",
+                buttons=botones_filtro,
+                font=dict(size=12, family="Arial Black"),
+                bgcolor="rgba(255,255,255,0.95)",
+                bordercolor="#1f4e79",
+                borderwidth=2,
+                active=0  # "Todos" seleccionado por defecto
+            )
+        ],
+        
+        # Márgenes ajustados (más espacio a la derecha)
+        margin=dict(l=80, r=300, t=120, b=100)  # r=300 para leyenda e instrucciones
     )
     
-    # 🆕 MEJORAR: Anotación explicativa más clara
+    # 9. INSTRUCCIONES EN LA PARTE DERECHA (debajo de la leyenda)
     fig.add_annotation(
-        x=0.02, y=-0.18,
+        x=1.02, y=0.45,  # Posición derecha, centro vertical
         xref="paper", yref="paper",
-        text="<b>📊 Interpretación MEJORADA:</b><br>" +
-             "• <b>Barras apiladas</b> = Energía total asignada por período (suma de todas las ofertas)<br>" +
-             "• <b>Colores en barras</b> = Contribución de cada oferta al total<br>" +
-             "• <b>Líneas punteadas</b> = Evolución de precios indexados por oferta<br>" +
-             "• <b>💡 Ventaja:</b> Vista menos saturada, fácil comparación de totales y contribuciones individuales",
+        text=(
+            "<b>💡 INSTRUCCIONES:</b><br><br>"
+            "🔽 <b>Filtrar por año:</b><br>"
+            "Usar dropdown arriba a la izquierda<br><br>"
+            "🖱️ <b>Ver detalles:</b><br>"
+            "Hover sobre barras/líneas<br><br>"
+            "📊 <b>Nota:</b><br>"
+            "Solo se muestran las 10<br>"
+            "ofertas principales<br><br>"
+            "⚡ <b>Energía:</b> Barras apiladas<br>"
+            "💰 <b>Precios:</b> Líneas con marcadores"
+        ),
         showarrow=False,
-        font=dict(size=10, color="#2c3e50", family="Arial"),
+        font=dict(size=11, color="#2c3e50", family="Arial"),
         bgcolor="rgba(240,248,255,0.95)",
         bordercolor="#3498db",
-        borderwidth=1,
-        align="left"
+        borderwidth=2,
+        align="left",
+        xanchor="left",
+        yanchor="middle",
+        width=280  # Ancho fijo para las instrucciones
     )
     
-    # 🆕 Agregar información adicional en el hover para barras
-    fig.update_traces(
-        hovertemplate="<b>%{fullData.name}</b><br>" +
-                     "Período: %{x}<br>" +
-                     "Energía: %{y:.2f} GWh<br>" +
-                     "<extra></extra>",
-        selector=dict(type="bar")
-    )
-    
-    logger.info(f"Gráfica consolidada con barras APILADAS creada exitosamente para {len(ofertas_ordenadas)} ofertas")
+    logger.info(f"Dashboard SIMPLIFICADO creado: {len(ofertas_top)} ofertas con filtros funcionales")
     return fig
+
+
+# FUNCIÓN WRAPPER PARA COMPATIBILIDAD
+def crear_grafica_consolidada_ofertas(resultados_dict):
+    """Wrapper que llama a la versión simplificada"""
+    return crear_grafica_consolidada_ofertas_simplificada(resultados_dict)
 
 def crear_graficas_por_oferta_completo(resultados_dict, output_dir):
     """
