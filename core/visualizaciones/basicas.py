@@ -578,14 +578,14 @@ def crear_grafica_resumen_general(resultados_dict):
         # CORREGIDO: Convertir energía a GW-TOTAL y redondear a 2 decimales
         energia_gw_total = round(energia_total / 1_000_000, 2)
         
-        # Precios ponderados (redondeados a 4 decimales)
-        precio_ponderado_indexado = round(costo_total_indexado / energia_total, 4) if energia_total > 0 else 0
-        precio_ponderado_no_indexado = round(costo_total_no_indexado / energia_total, 4) if energia_total > 0 else 0
+        # Precios ponderados (redondeados a 2 decimales)
+        precio_ponderado_indexado = round(costo_total_indexado / energia_total, 2) if energia_total > 0 else 0
+        precio_ponderado_no_indexado = round(costo_total_no_indexado / energia_total, 2) if energia_total > 0 else 0
         
         # Precios mínimos y máximos con agentes
         if precios_indexados:
-            precio_min_indexado = round(min(precios_indexados), 4)
-            precio_max_indexado = round(max(precios_indexados), 4)
+            precio_min_indexado = round(min(precios_indexados), 2)
+            precio_max_indexado = round(max(precios_indexados), 2)
             agente_min_indexado = agentes_precios_indexados.get(min(precios_indexados), "N/A")
             agente_max_indexado = agentes_precios_indexados.get(max(precios_indexados), "N/A")
         else:
@@ -593,8 +593,8 @@ def crear_grafica_resumen_general(resultados_dict):
             agente_min_indexado = agente_max_indexado = "N/A"
         
         if precios_no_indexados:
-            precio_min_no_indexado = round(min(precios_no_indexados), 4)
-            precio_max_no_indexado = round(max(precios_no_indexados), 4)
+            precio_min_no_indexado = round(min(precios_no_indexados), 2)
+            precio_max_no_indexado = round(max(precios_no_indexados), 2)
             agente_min_no_indexado = agentes_precios_no_indexados.get(min(precios_no_indexados), "N/A")
             agente_max_no_indexado = agentes_precios_no_indexados.get(max(precios_no_indexados), "N/A")
         else:
@@ -641,7 +641,7 @@ def crear_grafica_resumen_general(resultados_dict):
                 y=[precio_ponderado_indexado, precio_ponderado_no_indexado],
                 name="Precio Ponderado",
                 marker_color=[COLOR_INDEXADO, COLOR_NO_INDEXADO],
-                text=[f"${precio_ponderado_indexado:.4f}", f"${precio_ponderado_no_indexado:.4f}"],
+                text=[f"${precio_ponderado_indexado:.2f}", f"${precio_ponderado_no_indexado:.2f}"],
                 textposition="outside",
                 textfont=dict(size=11),  # MEJORADO: Tamaño ajustado
                 showlegend=False
@@ -679,8 +679,8 @@ def crear_grafica_resumen_general(resultados_dict):
                     values=[
                         [agente_min_indexado, agente_max_indexado],
                         ["Precio Mínimo", "Precio Máximo"],
-                        [f"${precio_min_indexado:.4f}", f"${precio_max_indexado:.4f}"],
-                        [f"${precio_min_no_indexado:.4f}", f"${precio_max_no_indexado:.4f}"]
+                        [f"${precio_min_indexado:.2f}", f"${precio_max_indexado:.2f}"],
+                        [f"${precio_min_no_indexado:.2f}", f"${precio_max_no_indexado:.2f}"]
                     ],
                     fill_color=[['#f8f9fa', '#e9ecef'] * 2],
                     font=dict(size=12),  # MEJORADO: Más grande
@@ -748,7 +748,7 @@ def crear_grafica_resumen_general(resultados_dict):
         
     except Exception as e:
         logger.error(f"Error al crear gráfica de resumen general: {e}")
-        return None
+        return None  
     
 def crear_grafica_torta_adjudicacion(resultados_dict):
     """
@@ -957,8 +957,48 @@ def crear_grafica_torta_adjudicacion(resultados_dict):
             values_ofertas.append(total_otros_gwh)
             colors_ofertas.append('#bdc3c7')
         
-        # Crear segunda torta
+        # Crear segunda torta CON HOVER DETALLADO
         if labels_ofertas:
+            # Crear hovertemplate personalizado para cada segmento
+            hover_templates = []
+            
+            # Para ofertas individuales
+            for i, agente_info in enumerate(ofertas_individuales):
+                hover_templates.append(
+                    "<b>%{label}</b><br>" +
+                    "Energía: %{value:.2f} GWh<br>" +
+                    "% del Total: %{percent}<br>" +
+                    "<extra></extra>"
+                )
+            
+            # Para el grupo "Otros" - hover detallado
+            if ofertas_agrupadas:
+                # Crear lista detallada de ofertas agrupadas
+                detalles_otros = []
+                ofertas_agrupadas_sorted = sorted(ofertas_agrupadas, key=lambda x: x['asignado_gwh'], reverse=True)
+                
+                # Mostrar hasta las primeras 8 ofertas en el hover
+                max_mostrar = min(8, len(ofertas_agrupadas_sorted))
+                for ag in ofertas_agrupadas_sorted[:max_mostrar]:
+                    detalles_otros.append(f"• {ag['agente']}: {ag['asignado_gwh']:.2f} GWh ({ag['porcentaje_del_total']:.1f}%)")
+                
+                # Si hay más de 8, agregar indicador
+                if len(ofertas_agrupadas_sorted) > max_mostrar:
+                    restantes = len(ofertas_agrupadas_sorted) - max_mostrar
+                    detalles_otros.append(f"...y {restantes} más")
+                
+                # Crear hover template para "Otros"
+                total_otros_gwh = sum(ag['asignado_gwh'] for ag in ofertas_agrupadas)
+                hover_otros = (
+                    f"<b>Otros ({len(ofertas_agrupadas)} ofertas)</b><br>" +
+                    f"Total: {total_otros_gwh:.2f} GWh<br>" +
+                    f"% del Total: %{{percent}}<br><br>" +
+                    "<b>Detalles:</b><br>" +
+                    "<br>".join(detalles_otros) +
+                    "<extra></extra>"
+                )
+                hover_templates.append(hover_otros)
+            
             fig.add_trace(
                 go.Pie(
                     labels=labels_ofertas,
@@ -968,10 +1008,7 @@ def crear_grafica_torta_adjudicacion(resultados_dict):
                     textinfo='label',
                     textfont=dict(size=10),
                     showlegend=False,
-                    hovertemplate="<b>%{label}</b><br>" +
-                                 "Energía: %{value:.2f} GWh<br>" +
-                                 "% del Total: %{percent}<br>" +
-                                 "<extra></extra>"
+                    hovertemplate=hover_templates  # Usar templates personalizados
                 ),
                 row=1, col=2
             )
@@ -1013,5 +1050,5 @@ def crear_grafica_torta_adjudicacion(resultados_dict):
         
     except Exception as e:
         logger.error(f"Error al crear gráfica adaptativa: {e}")
-        return None
+        return None  
     

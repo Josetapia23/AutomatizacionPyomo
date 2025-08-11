@@ -415,6 +415,15 @@ def crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, result
                     junto con el porcentaje de energía no asignada por hora.
                 </div>
                 <div id="grafica-principal"></div>
+                
+                <div style="text-align: center; margin: 20px 0; padding: 15px; background-color: #f8f9fa; border-radius: 8px; border: 2px dashed #6c757d;">
+                <p style="margin: 0 0 10px 0; color: #495057; font-size: 14px;">
+                <strong>💡 En caso de requerir resumen anual dar clic en este botón</strong>
+                </p>
+                <a href="07_energia_por_anos.html" class="nav-button" target="_blank">
+                    📅 Ver Resumen Anual de Energía
+                </a>
+</div>
             </div>
             """
         
@@ -499,21 +508,6 @@ def crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, result
             </div>
         </div>
         """
-        
-        # Gráfica de energía por años (RENUMERADA)
-        html_content += f"""
-            <div class="grafica-container">
-                <h3>🔹 Energía Asignada y No Asignada por Año</h3>
-                <div class="descripcion">
-                    Visualización anual de la distribución de energía con análisis de tendencias.
-                </div>
-                <div style="text-align: center; margin: 10px 0;">
-                    <a href="07_energia_por_anos.html" class="nav-button" target="_blank">
-                        📅 Ver Análisis Anual Completo
-                    </a>
-                </div>
-            </div>
-            """
         
         html_content += "</div>"  # Cerrar sección avanzadas
         
