@@ -62,7 +62,7 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
         print("🔹 [1/8] Creando gráfica principal de energía asignada...")
         graficas_totales += 1
         try:
-            fig_principal = crear_grafica_principal_energia_asignada(resultados_dict)
+            fig_principal = crear_grafica_principal_energia_asignada(resultados_dict, ofertas_df)
             if fig_principal:
                 archivo_principal = output_dir / "01_energia_asignada_principal.html"
                 pyo.plot(fig_principal, filename=str(archivo_principal), auto_open=False)
@@ -176,7 +176,7 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
         print("🔹 [7/8] Creando gráfica de energía por años...")
         graficas_totales += 1
         try:
-            fig_energia_anos = crear_grafica_energia_por_anos(resultados_dict)
+            fig_energia_anos = crear_grafica_energia_por_anos(resultados_dict, ofertas_df)
             if fig_energia_anos:
                 archivo_energia_anos = output_dir / "07_energia_por_anos.html"  # RENUMERADA
                 pyo.plot(fig_energia_anos, filename=str(archivo_energia_anos), auto_open=False)
@@ -225,7 +225,7 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
         # 9. Reporte HTML Consolidado
         print("🔹 [+] Creando reporte HTML consolidado...")
         try:
-            crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, resultado_ofertas)
+            crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, resultado_ofertas, ofertas_df)
             print(f"  ✅ ÉXITO: reporte_consolidado.html")
             archivos_generados.append("reporte_consolidado.html")
         except Exception as e:
@@ -277,7 +277,7 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
         print(f"❌ ERROR CRÍTICO: {e}")
         return False
 
-def crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, resultado_ofertas=None):
+def crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, resultado_ofertas, ofertas_df):
     """
     Crea un reporte HTML consolidado SIN distribución por agente.
     Solo incluye las gráficas esenciales y consolidado de ofertas.
@@ -289,9 +289,9 @@ def crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, result
     """
     try:
         # Crear las gráficas generales
-        fig_principal = crear_grafica_principal_energia_asignada(resultados_dict)
+        fig_principal = crear_grafica_principal_energia_asignada(resultados_dict, ofertas_df)
         fig_resumen = crear_grafica_resumen_general(resultados_dict)
-        fig_torta = crear_grafica_torta_adjudicacion(resultados_dict)
+        fig_torta = crear_grafica_torta_adjudicacion(resultados_dict, ofertas_df)
         fig_mapa_calor = crear_mapa_calor_mensual(resultados_dict)
         fig_energia_horaria = crear_tabla_energia_faltante_horaria(resultados_dict)
         

@@ -19,10 +19,11 @@ from .utils import (
 
 logger = logging.getLogger(__name__)
 
-def crear_grafica_principal_energia_asignada(resultados_dict):
+def crear_grafica_principal_energia_asignada(resultados_dict, ofertas_df=None):
     """
     Crea la gráfica principal de ENERGÍA ASIGNADA Y NO ASIGNADA por horas.
     CORREGIDO: Solo cambia etiqueta a GW-TOTAL, mantiene cálculos originales
+    MEJORADO: Incluye ofertas no participantes en "GW No Asignado"
     """
     logger.info("Creando gráfica principal de energía asignada y no asignada")
     
@@ -56,6 +57,38 @@ def crear_grafica_principal_energia_asignada(resultados_dict):
                                 gwh_asignados[hora-1] += valor_gwh
                             elif es_energia_no_asignada:
                                 gwh_no_asignados[hora-1] += valor_gwh
+
+        # NUEVO: Sumar ofertas no participantes a "GW No Asignado"
+        if ofertas_df is not None and not ofertas_df.empty:
+            # Identificar ofertas que participaron en Pyomo
+            ofertas_participantes = set()
+            for clave in resultados_dict.keys():
+                if "_COMPRAR" in clave or "_NO_COMPRADA" in clave:
+                    if "DEMANDA ASIGNADA" in clave:
+                        partes = clave.split()
+                        for i, parte in enumerate(partes):
+                            if parte in ["IT1_COMPRAR", "IT2_COMPRAR", "IT1_NO_COMPRADA", "IT2_NO_COMPRADA"]:
+                                if i > 2:
+                                    nombre_oferta = " ".join(partes[2:i])
+                                    ofertas_participantes.add(nombre_oferta)
+                                break
+            
+            todas_las_ofertas = set(ofertas_df['CÓDIGO OFERTA'].unique())
+            ofertas_no_participantes = todas_las_ofertas - ofertas_participantes
+            
+            logger.info(f"Ofertas participantes: {len(ofertas_participantes)}")
+            logger.info(f"Ofertas NO participantes: {len(ofertas_no_participantes)}")
+            
+            # Sumar energía de ofertas no participantes a gwh_no_asignados
+            for _, row in ofertas_df.iterrows():
+                oferta = row['CÓDIGO OFERTA']
+                if oferta in ofertas_no_participantes:
+                    hora = row['Atributo']
+                    cantidad = row.get('CANTIDAD', 0)
+                    
+                    if pd.notna(cantidad) and cantidad > 0 and 1 <= hora <= 24:
+                        valor_gwh = convert_to_gwh(cantidad)
+                        gwh_no_asignados[hora-1] += valor_gwh
         
         # Logs para verificar que los valores son correctos
         logger.info(f"GWh Asignados hora 1: {gwh_asignados[0]:.2f}")
@@ -225,14 +258,16 @@ def crear_grafica_principal_energia_asignada(resultados_dict):
     except Exception as e:
         logger.error(f"Error al crear la gráfica principal: {e}")
         raise
-
-def crear_grafica_energia_por_anos(resultados_dict):
+    
+def crear_grafica_energia_por_anos(resultados_dict, ofertas_df=None):
     """
     Crea la gráfica de ENERGÍA ASIGNADA Y NO ASIGNADA agrupada por AÑOS.
     CORREGIDO: Sin filtros interactivos y anotación reubicada.
+    MEJORADO: Incluye ofertas no participantes en energía no asignada.
     
     Args:
         resultados_dict (dict): Diccionario con los resultados de la optimización
+        ofertas_df (DataFrame, opcional): DataFrame con ofertas originales
         
     Returns:
         plotly.graph_objects.Figure: Figura con la gráfica anual
@@ -293,6 +328,49 @@ def crear_grafica_energia_por_anos(resultados_dict):
                         gwh_asignados_por_ano[ano] += valor_gwh
                     elif es_energia_no_asignada:
                         gwh_no_asignados_por_ano[ano] += valor_gwh
+
+        # NUEVO: Agregar ofertas no participantes por año
+        if ofertas_df is not None and not ofertas_df.empty:
+            # Identificar ofertas participantes
+            ofertas_participantes = set()
+            for clave in resultados_dict.keys():
+                if "_COMPRAR" in clave or "_NO_COMPRADA" in clave:
+                    if "DEMANDA ASIGNADA" in clave:
+                        partes = clave.split()
+                        for i, parte in enumerate(partes):
+                            if parte in ["IT1_COMPRAR", "IT2_COMPRAR", "IT1_NO_COMPRADA", "IT2_NO_COMPRADA"]:
+                                if i > 2:
+                                    nombre_oferta = " ".join(partes[2:i])
+                                    ofertas_participantes.add(nombre_oferta)
+                                break
+            
+            todas_las_ofertas = set(ofertas_df['CÓDIGO OFERTA'].unique())
+            ofertas_no_participantes = todas_las_ofertas - ofertas_participantes
+            
+            # Sumar energía no participante por año
+            for _, row in ofertas_df.iterrows():
+                oferta = row['CÓDIGO OFERTA']
+                if oferta in ofertas_no_participantes:
+                    fecha = row.get('FECHA')
+                    cantidad = row.get('CANTIDAD', 0)
+                    
+                    if fecha and pd.notna(cantidad) and cantidad > 0:
+                        try:
+                            if hasattr(fecha, 'year'):
+                                ano = fecha.year
+                            elif isinstance(fecha, str):
+                                fecha_dt = pd.to_datetime(fecha)
+                                ano = fecha_dt.year
+                            else:
+                                continue
+                                
+                            if ano not in gwh_no_asignados_por_ano:
+                                gwh_no_asignados_por_ano[ano] = 0
+                            
+                            valor_gwh = convert_to_gwh(cantidad)
+                            gwh_no_asignados_por_ano[ano] += valor_gwh
+                        except:
+                            continue
         
         # Verificar que tenemos datos
         if not gwh_asignados_por_ano and not gwh_no_asignados_por_ano:
@@ -500,7 +578,6 @@ def crear_grafica_energia_por_anos(resultados_dict):
         logger.error(f"Error al crear la gráfica anual: {e}")
         print(f"❌ Error en gráfica anual: {e}")
         return None
-
 def crear_grafica_resumen_general(resultados_dict):
     """
     Crea la gráfica de resumen general MEJORADA:
@@ -750,13 +827,15 @@ def crear_grafica_resumen_general(resultados_dict):
         logger.error(f"Error al crear gráfica de resumen general: {e}")
         return None  
     
-def crear_grafica_torta_adjudicacion(resultados_dict):
+def crear_grafica_torta_adjudicacion(resultados_dict, ofertas_df=None):
     """
     Crea gráfica de torta ADAPTATIVA que funciona con cualquier número de ofertas.
     Se adapta automáticamente sin configuraciones manuales.
+    MEJORADO: Incluye ofertas no participantes en energía no adjudicada.
     
     Args:
         resultados_dict (dict): Diccionario con los resultados
+        ofertas_df (DataFrame, opcional): DataFrame con ofertas originales
         
     Returns:
         plotly.graph_objects.Figure: Figura con gráficas de torta optimizada
@@ -820,6 +899,32 @@ def crear_grafica_torta_adjudicacion(resultados_dict):
                 except Exception as e:
                     logger.warning(f"Error procesando clave {clave}: {e}")
                     continue
+
+        # NUEVO: Agregar ofertas no participantes al total no adjudicado
+        if ofertas_df is not None and not ofertas_df.empty:
+            # Identificar ofertas participantes
+            ofertas_participantes = set()
+            for clave in resultados_dict.keys():
+                if "_COMPRAR" in clave or "_NO_COMPRADA" in clave:
+                    if "DEMANDA ASIGNADA" in clave:
+                        partes = clave.split()
+                        for i, parte in enumerate(partes):
+                            if parte in ["IT1_COMPRAR", "IT2_COMPRAR", "IT1_NO_COMPRADA", "IT2_NO_COMPRADA"]:
+                                if i > 2:
+                                    nombre_oferta = " ".join(partes[2:i])
+                                    ofertas_participantes.add(nombre_oferta)
+                                break
+            
+            todas_las_ofertas = set(ofertas_df['CÓDIGO OFERTA'].unique())
+            ofertas_no_participantes = todas_las_ofertas - ofertas_participantes
+            
+            # Sumar energía de ofertas no participantes
+            for _, row in ofertas_df.iterrows():
+                oferta = row['CÓDIGO OFERTA']
+                if oferta in ofertas_no_participantes:
+                    cantidad = row.get('CANTIDAD', 0)
+                    if pd.notna(cantidad) and cantidad > 0:
+                        total_no_asignado_pyomo += cantidad
         
         # 3. CALCULAR TOTALES
         for agente in datos_por_agente:
@@ -1050,5 +1155,4 @@ def crear_grafica_torta_adjudicacion(resultados_dict):
         
     except Exception as e:
         logger.error(f"Error al crear gráfica adaptativa: {e}")
-        return None  
-    
+        return None
