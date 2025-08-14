@@ -6,6 +6,7 @@ ENV/
 .env/
 .ENV/
 
+
 # Archivos de Python
 __pycache__/
 *.py[cod]
@@ -70,3 +71,4 @@ indexadores.cpython-310.pyc
 ofertas.cpython-310.pyc
 utils.cpython-310.pyc
 config.cpython-310.pyc
+.output/visualization
