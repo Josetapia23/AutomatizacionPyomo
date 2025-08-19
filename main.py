@@ -497,11 +497,18 @@ def ejecutar_flujo_completo():
             print("ERROR: No se pudo procesar el precio SICEP")
             return False
         
-        # Paso 5: Procesar ofertas
+        # Paso 5: Procesar ofertas - CORREGIDO: Usar versión optimizada
         print("\n=== PASO 4: PROCESAR OFERTAS ===")
-        if not procesar_ofertas(OFERTAS_DIR, DATOS_INICIALES, RESULTADO_OFERTAS):
-            print("ERROR: No se pudieron procesar las ofertas")
-            return False
+        
+        # 🔄 CORRECCIÓN 1: Usar versión optimizada si está disponible
+        if OPTIMIZACION_DISPONIBLE:
+            if not procesar_ofertas_optimizado_corregido(OFERTAS_DIR, DATOS_INICIALES, RESULTADO_OFERTAS):
+                print("ERROR: No se pudieron procesar las ofertas (optimizado)")
+                return False
+        else:
+            if not procesar_ofertas(OFERTAS_DIR, DATOS_INICIALES, RESULTADO_OFERTAS):
+                print("ERROR: No se pudieron procesar las ofertas")
+                return False
         
         # Paso 6: Leer demanda
         print("\n=== PASO 5: LEER DEMANDA ===")
@@ -564,22 +571,31 @@ def ejecutar_flujo_completo():
             print("ERROR: No se pudieron exportar los resultados")
             return False
         
-        # Paso 12: Generar visualizaciones
+        # Paso 12: Generar visualizaciones - CORREGIDO: Usar ofertas completas
         print("\n=== PASO 11: GENERAR VISUALIZACIONES ===")
         if VISUALIZACIONES_DISPONIBLES:
             try:
-                if generar_reporte_completo(resultados_dict, ofertas_df, RESULTADO_OFERTAS):
+                # 🔄 CORRECCIÓN 2: Usar ofertas_df_completas en lugar de ofertas_df
+                if generar_reporte_completo(resultados_dict, ofertas_df_completas, RESULTADO_OFERTAS):
                     print("✓ Visualizaciones generadas exitosamente")
                     print("📊 Se han generado:")
-                    print("   - Gráficas de resumen anual")
-                    print("   - Mapa de calor de asignaciones")
-                    print("   - Estadísticas anuales en Excel")
-                    print("   - Gráficas de distribución por oferta")
+                    print("   ✅ Gráfica principal de energía asignada")
+                    print("   ✅ Gráfica de resumen general")
+                    print("   ✅ Gráfica de torta de adjudicación")
+                    print("   ✅ Mapa de calor mensual")
+                    print("   ✅ Distribución por agente")
+                    print("   ✅ Reporte HTML consolidado")
+                    
+                    # Mostrar ubicación de los archivos
+                    from pathlib import Path
+                    output_dir = Path(RESULTADO_OFERTAS).parent / "visualizaciones"
+                    print(f"\n📁 Ubicación de las gráficas: {output_dir}")
+                    print("💡 Abre el archivo 'reporte_consolidado.html' para ver todas las gráficas")
                 else:
                     print("⚠ No se pudieron generar todas las visualizaciones")
             except Exception as e:
-                print(f"⚠ Error al generar visualizaciones: {e}")
-                logger.warning(f"Error en visualizaciones: {e}")
+               print(f"⚠ Error al generar visualizaciones: {e}")
+               logger.warning(f"Error en visualizaciones: {e}")
         else:
             print("⚠ Módulo de visualizaciones no disponible")
         
@@ -617,7 +633,7 @@ def ejecutar_flujo_completo():
         logger.exception(f"Error en el flujo de ejecución: {e}")
         print(f"❌ ERROR INESPERADO: {e}")
         return False
-
+    
 def mostrar_menu():
     """
     Muestra el menú principal de la aplicación con las opciones actualizadas.
