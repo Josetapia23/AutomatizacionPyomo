@@ -485,7 +485,8 @@ def crear_grafica_oferta_no_participante(nombre_oferta, datos_originales):
 
 def extraer_datos_oferta_original(nombre_oferta, resultados_dict):
     """
-    Extrae datos originales de ofertas no participantes desde RESUMEN EJECUTIVO.
+    Extrae datos de ofertas no participantes incluyendo precios reales.
+    CORREGIDO: Lee capacidad desde hojas ENA y precios desde CANTIDADES Y PRECIOS.
     
     Args:
         nombre_oferta (str): Nombre de la oferta
@@ -494,42 +495,52 @@ def extraer_datos_oferta_original(nombre_oferta, resultados_dict):
     Returns:
         dict: Datos originales o None
     """
-    if "RESUMEN EJECUTIVO" not in resultados_dict:
+    # 1. Buscar hoja ENA para capacidad
+    clave_ena = f"DEMANDA ASIGNADA {nombre_oferta} IT1_NO_COMPRADA"
+    if clave_ena not in resultados_dict:
+        logger.warning(f"No se encontró hoja ENA para {nombre_oferta}")
         return None
     
-    resumen_df = resultados_dict["RESUMEN EJECUTIVO"]
-    
-    # Buscar columnas de esta oferta
-    col_cantidad = f"{nombre_oferta} CANTIDAD (KWh)"
-    col_precio = f"{nombre_oferta} PRECIO ($/KWh)"
-    col_precio_indexado = f"{nombre_oferta} PRECIO INDEXADO ($/KWh)"
-    
-    if not any(col in resumen_df.columns for col in [col_cantidad, col_precio, col_precio_indexado]):
+    ena_df = resultados_dict[clave_ena]
+    if ena_df.empty:
         return None
+    
+    # 2. Buscar precios en hoja CANTIDADES Y PRECIOS
+    precios_dict = {}
+    if "CANTIDADES Y PRECIOS" in resultados_dict:
+        cantidades_df = resultados_dict["CANTIDADES Y PRECIOS"]
+        ofertas_filtradas = cantidades_df[cantidades_df['CÓDIGO OFERTA'] == nombre_oferta]
+        
+        for _, row in ofertas_filtradas.iterrows():
+            fecha = row['FECHA']
+            precio_indexado = row.get('PRECIO INDEXADO', 0)
+            precio_sin_indexar = row.get('PRECIO', 0)
+            if fecha not in precios_dict:
+                precios_dict[fecha] = {
+                    'indexado': precio_indexado, 
+                    'sin_indexar': precio_sin_indexar
+                }
     
     datos = {
         'fechas': [],
-        'capacidad_total': [],  # Toda la capacidad ofertada
+        'capacidad_total': [],  # Capacidad desde ENA
         'precio_indexado': [],
         'precio_sin_indexar': []
     }
     
-    for _, row in resumen_df.iterrows():
+    for _, row in ena_df.iterrows():
         fecha = row['FECHA']
-        # Para no participantes, usar datos originales (si están disponibles)
-        # O asumir capacidad basada en precios ofertados
-        capacidad = row[col_cantidad] if col_cantidad in resumen_df.columns and pd.notna(row[col_cantidad]) else 0
-        precio_sin_indexar = row[col_precio] if col_precio in resumen_df.columns and pd.notna(row[col_precio]) else 0
-        precio_indexado = row[col_precio_indexado] if col_precio_indexado in resumen_df.columns and pd.notna(row[col_precio_indexado]) else 0
+        # Sumar todas las horas para obtener capacidad diaria total
+        capacidad_diaria = sum(row[hora] for hora in range(1, 25) if hora in row and pd.notna(row[hora]))
         
-        # Incluir datos aunque sean cero (para mostrar la no participación)
-        datos['fechas'].append(fecha)
-        datos['capacidad_total'].append(capacidad)
-        datos['precio_indexado'].append(precio_indexado)
-        datos['precio_sin_indexar'].append(precio_sin_indexar)
+        if capacidad_diaria > 0:  # Solo incluir días con capacidad
+            datos['fechas'].append(fecha)
+            datos['capacidad_total'].append(capacidad_diaria)
+            # Usar precios reales si están disponibles
+            datos['precio_indexado'].append(precios_dict.get(fecha, {}).get('indexado', 0))
+            datos['precio_sin_indexar'].append(precios_dict.get(fecha, {}).get('sin_indexar', 0))
     
     return datos if datos['fechas'] else None
-
 def crear_graficas_por_oferta(resultados_dict, output_dir):
     """
     Crea gráficas individuales para TODAS las ofertas: participantes Y no participantes.

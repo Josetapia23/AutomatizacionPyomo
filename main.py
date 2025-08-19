@@ -571,28 +571,39 @@ def ejecutar_flujo_completo():
             print("ERROR: No se pudieron exportar los resultados")
             return False
         
-        # Paso 12: Generar visualizaciones - CORREGIDO: Usar ofertas completas
+        # Paso 12: Generar visualizaciones - CORREGIDO: Usar datos desde Excel
         print("\n=== PASO 11: GENERAR VISUALIZACIONES ===")
         if VISUALIZACIONES_DISPONIBLES:
             try:
-                # 🔄 CORRECCIÓN 2: Usar ofertas_df_completas en lugar de ofertas_df
-                if generar_reporte_completo(resultados_dict, ofertas_df_completas, RESULTADO_OFERTAS):
-                    print("✓ Visualizaciones generadas exitosamente")
-                    print("📊 Se han generado:")
-                    print("   ✅ Gráfica principal de energía asignada")
-                    print("   ✅ Gráfica de resumen general")
-                    print("   ✅ Gráfica de torta de adjudicación")
-                    print("   ✅ Mapa de calor mensual")
-                    print("   ✅ Distribución por agente")
-                    print("   ✅ Reporte HTML consolidado")
-                    
-                    # Mostrar ubicación de los archivos
-                    from pathlib import Path
-                    output_dir = Path(RESULTADO_OFERTAS).parent / "visualizaciones"
-                    print(f"\n📁 Ubicación de las gráficas: {output_dir}")
-                    print("💡 Abre el archivo 'reporte_consolidado.html' para ver todas las gráficas")
+                # 🔄 NUEVO: Recargar desde Excel como paso 6
+                print("🔄 Recargando resultados desde Excel para visualizaciones completas...")
+                resultados_para_graficas = cargar_resultados_desde_excel(RESULTADO_OFERTAS)
+                
+                if resultados_para_graficas:
+                    if generar_reporte_completo(resultados_para_graficas, ofertas_df_completas, RESULTADO_OFERTAS):
+                        print("✓ Visualizaciones generadas con datos completos (todas las ofertas)")
+                        print("📊 Se han generado:")
+                        print("   ✅ Gráfica principal de energía asignada")
+                        print("   ✅ Gráfica de resumen general")
+                        print("   ✅ Gráfica de torta de adjudicación")
+                        print("   ✅ Mapa de calor mensual")
+                        print("   ✅ Distribución por agente")
+                        print("   ✅ Reporte HTML consolidado")
+                        
+                        # Mostrar ubicación de los archivos
+                        from pathlib import Path
+                        output_dir = Path(RESULTADO_OFERTAS).parent / "visualizaciones"
+                        print(f"\n📁 Ubicación de las gráficas: {output_dir}")
+                        print("💡 Abre el archivo 'reporte_consolidado.html' para ver todas las gráficas")
+                    else:
+                        print("⚠ Error al generar visualizaciones completas")
                 else:
-                    print("⚠ No se pudieron generar todas las visualizaciones")
+                    print("⚠ Error al recargar datos desde Excel")
+                    # Fallback: usar datos originales
+                    if generar_reporte_completo(resultados_dict, ofertas_df_completas, RESULTADO_OFERTAS):
+                        print("✓ Visualizaciones generadas con datos parciales")
+                    else:
+                        print("⚠ No se pudieron generar visualizaciones")
             except Exception as e:
                print(f"⚠ Error al generar visualizaciones: {e}")
                logger.warning(f"Error en visualizaciones: {e}")
@@ -633,7 +644,7 @@ def ejecutar_flujo_completo():
         logger.exception(f"Error en el flujo de ejecución: {e}")
         print(f"❌ ERROR INESPERADO: {e}")
         return False
-    
+      
 def mostrar_menu():
     """
     Muestra el menú principal de la aplicación con las opciones actualizadas.
