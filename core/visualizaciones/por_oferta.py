@@ -1147,9 +1147,28 @@ def generar_reporte_consolidado_ofertas(graficas_creadas, output_dir, resultados
     
     return archivo_consolidado
 
+def generar_colores_ofertas(num_ofertas):
+    import colorsys
+    
+    colores = []
+    for i in range(num_ofertas):
+        # Distribuir con más separación para evitar similares
+        hue = (i * 0.618033988749895) % 1  # Proporción áurea para mejor distribución
+        saturation = 0.9 if i % 2 == 0 else 0.7  # Alternar saturación
+        value = 0.8 if i % 3 == 0 else 0.6  # Alternar brillo
+        
+        rgb = colorsys.hsv_to_rgb(hue, saturation, value)
+        hex_color = '#{:02x}{:02x}{:02x}'.format(
+            int(rgb[0] * 255), int(rgb[1] * 255), int(rgb[2] * 255)
+        )
+        colores.append(hex_color)
+    
+    return colores
+
+
 def crear_grafica_consolidada_ofertas_simplificada(resultados_dict):
     """
-    Dashboard CONSOLIDADO corregido: sin solapamientos y filtros funcionales.
+    Dashboard CONSOLIDADO corregido: mismo color por oferta en barras y líneas.
     """
     logger.info("Creando dashboard consolidado corregido")
     
@@ -1187,31 +1206,22 @@ def crear_grafica_consolidada_ofertas_simplificada(resultados_dict):
     ofertas_adjudicadas = [x[0] for x in ofertas_adjudicadas]
     fechas = resumen_df['FECHA'].tolist()
     
-    # 2. COLORES
-    colores_energia = [
-        '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', 
-        '#e377c2', '#7f7f7f', '#bcbd22', '#17becf', '#aec7e8', '#ffbb78',
-        '#98df8a', '#ff9896', '#c5b0d5', '#c49c94', '#f7b6d3', '#c7c7c7'
-    ]
-    
-    colores_precios = [
-        '#0d47a1', '#e65100', '#1b5e20', '#b71c1c', '#4a148c', '#3e2723',
-        '#880e4f', '#424242', '#827717', '#006064', '#01579b', '#bf360c'
-    ]
+    # 2. COLORES ÚNICOS POR OFERTA
+    colores_ofertas = generar_colores_ofertas(len(ofertas_adjudicadas))
     
     # 3. CREAR FIGURA
     fig = go.Figure()
     
     # 4. AGREGAR BARRAS DE ENERGÍA
     for i, oferta in enumerate(ofertas_adjudicadas):
-        color_energia = colores_energia[i % len(colores_energia)]
+        color_oferta = colores_ofertas[i]
         
         fig.add_trace(
             go.Bar(
                 x=fechas,
                 y=datos_energia[oferta],
                 name=f"⚡ {oferta}",
-                marker_color=color_energia,
+                marker_color=color_oferta,
                 opacity=0.85,
                 text=[f"{val:.1f}" if val > 1 else f"{val:.2f}" if val > 0 else "" 
                       for val in datos_energia[oferta]],
@@ -1230,10 +1240,10 @@ def crear_grafica_consolidada_ofertas_simplificada(resultados_dict):
             )
         )
     
-    # 5. AGREGAR LÍNEAS DE PRECIOS
+    # 5. AGREGAR LÍNEAS DE PRECIOS (MISMO COLOR QUE BARRAS)
     for i, oferta in enumerate(ofertas_adjudicadas):
         if oferta in datos_precios:
-            color_precio = colores_precios[i % len(colores_precios)]
+            color_oferta = colores_ofertas[i]
             
             fig.add_trace(
                 go.Scatter(
@@ -1242,15 +1252,15 @@ def crear_grafica_consolidada_ofertas_simplificada(resultados_dict):
                     mode="lines+markers",
                     name=f"💰 {oferta}",
                     line=dict(
-                        color=color_precio, 
+                        color=color_oferta,
                         width=4,
                         shape='spline',
                         smoothing=1.0
                     ),
                     marker=dict(
-                        size=10, 
-                        color=color_precio,
-                        line=dict(color="white", width=2),
+                        size=6,  # REDUCIDO de 10 a 6
+                        color=color_oferta,
+                        line=dict(color="white", width=1),  # REDUCIDO de 2 a 1
                         symbol="circle"
                     ),
                     connectgaps=False,
@@ -1324,35 +1334,35 @@ def crear_grafica_consolidada_ofertas_simplificada(resultados_dict):
     fig.update_layout(
         title={
             'text': f"DASHBOARD ENERGÉTICO CONSOLIDADO<br><sub>📊 {len(ofertas_adjudicadas)} ofertas adjudicadas | Energía y Precios por Período</sub>",
-            'x': 0.4,  # CENTRADO EN ÁREA DE GRÁFICA
+            'x': 0.4,
             'xanchor': 'center',
             'font': {'size': 24, 'color': '#1f4e79', 'family': 'Arial Black'}
         },
         
-        width=2000,  # MÁS ANCHO
+        width=2000,
         height=1000,
         
         plot_bgcolor='white',
         paper_bgcolor='#fafafa',
         barmode='stack',
         
-        # LEYENDA MOVIDA MÁS A LA DERECHA
         legend=dict(
             orientation="v",
             yanchor="top",
             y=0.98,
             xanchor="left", 
-            x=1.15,  # MÁS A LA DERECHA
+            x=1.15,
             font=dict(size=12, family="Arial"),
             bgcolor="rgba(255,255,255,0.95)",
             bordercolor="#1f4e79",
             borderwidth=2,
             itemsizing="constant",
             itemwidth=40,
-            tracegroupgap=20
+            tracegroupgap=20,
+            itemclick="toggle",      # CLIC INDIVIDUAL
+            itemdoubleclick="toggle" # DOBLE CLIC INDIVIDUAL
         ),
         
-        # FILTROS
         updatemenus=[
             dict(
                 type="dropdown",
@@ -1370,8 +1380,7 @@ def crear_grafica_consolidada_ofertas_simplificada(resultados_dict):
             )
         ],
         
-        # MÁRGENES AMPLIADOS
-        margin=dict(l=100, r=600, t=150, b=150)  # MÁS ESPACIO DERECHO Y ABAJO
+        margin=dict(l=100, r=600, t=150, b=150)
     )
     
     # 8. EJES
@@ -1435,14 +1444,14 @@ def crear_grafica_consolidada_ofertas_simplificada(resultados_dict):
     
     # 9. GUÍA RÁPIDA AL FONDO
     fig.add_annotation(
-        x=0.5, y=-0.12,  # ABAJO EN EL CENTRO
+        x=0.5, y=-0.12,
         xref="paper", yref="paper",
         text=(
             "<b>💡 GUÍA RÁPIDA:</b> "
             "🔋 Barras = Energía por oferta | "
             "💰 Líneas = Precios indexados | "
             "📅 Dropdown = Filtrar por año | "
-            "🖱️ Hover = Ver detalles | "
+            "🖱 Hover = Ver detalles | "
             "📊 Escalas: GWh (izq) - $/kWh (der)"
         ),
         showarrow=False,

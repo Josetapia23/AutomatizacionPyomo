@@ -94,7 +94,7 @@ def normalizar_columnas_precios(precios_df, codigo_oferta=""):
         # Validar que la hora esté en rango válido (1-24)
         if hora_encontrada and 1 <= hora_encontrada <= 24:
             nuevas_columnas.append(f"H{hora_encontrada}")
-            logger.debug(f"Columna '{col_str}' → 'H{hora_encontrada}' (patrón: {patron_usado})")
+            logger.debug(f"Columna '{col_str}' -> 'H{hora_encontrada}' (patrón: {patron_usado})")
         else:
             # Si no pudimos identificar la hora, es problemática
             nuevas_columnas.append(col_str)
@@ -189,7 +189,7 @@ def normalizar_columnas_cantidad(cantidad_df, codigo_oferta=""):
         # Validar rango (1-24)
         if hora_encontrada and 1 <= hora_encontrada <= 24:
             nuevas_columnas.append(f"KWH-H{hora_encontrada}")
-            logger.debug(f"Columna '{col_str}' → 'KWH-H{hora_encontrada}' (patrón: {patron_usado})")
+            logger.debug(f"Columna '{col_str}' -> 'KWH-H{hora_encontrada}' (patrón: {patron_usado})")
         else:
             nuevas_columnas.append(col_str)
             columnas_problematicas.append((i, col_str))

@@ -140,8 +140,8 @@ def leer_excel_case_insensitive(archivo_path, nombre_hoja_objetivo):
         
         # Log para verificación
         if hoja_encontrada != nombre_hoja_objetivo:
-            logger.info(f"Hoja encontrada con diferente capitalización: "
-                       f"'{nombre_hoja_objetivo}' → '{hoja_encontrada}'")
+            logger.info(f"Hoja encontrada con diferente capitalizacion: "
+                       f"'{nombre_hoja_objetivo}' -> '{hoja_encontrada}'")
         
         return df
         

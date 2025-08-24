@@ -986,7 +986,7 @@ def crear_grafica_torta_adjudicacion(resultados_dict, ofertas_df=None):
             else:
                 ofertas_agrupadas.append(agente_info)
         
-        print(f"  📋 Criterio: {porcentaje_minimo}% mínimo → {len(ofertas_individuales)} individuales + {len(ofertas_agrupadas)} agrupadas")
+        print(f"  📋 Criterio: {porcentaje_minimo}% mínimo -> {len(ofertas_individuales)} individuales + {len(ofertas_agrupadas)} agrupadas")
         
         # Crear subplot
         fig = make_subplots(

@@ -73,7 +73,7 @@ class ValidadorNombresOfertas:
                 es_valido=True
             )
             
-            logger.info(f"✅ Oferta válida: {nombre_archivo} → {nombre_estandarizado}")
+            logger.info(f"ok Oferta valida: {nombre_archivo} -> {nombre_estandarizado}")
             
         else:
             # Nombre no cumple el formato
@@ -86,7 +86,7 @@ class ValidadorNombresOfertas:
                 error_mensaje=f"No cumple formato Agente-OFERTA-# (ej: EPM-OFERTA-001)"
             )
             
-            logger.warning(f"❌ Oferta inválida: {nombre_archivo}")
+            logger.warning(f"ERROR Oferta inválida: {nombre_archivo}")
             self.errores_encontrados.append(oferta_info)
         
         self.ofertas_procesadas[nombre_archivo] = oferta_info

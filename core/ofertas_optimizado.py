@@ -62,7 +62,7 @@ def leer_excel_ultra_rapido(archivo_path, hojas_necesarias):
             if hoja_encontrada:
                 mapeo_hojas[hoja_objetivo] = hoja_encontrada
                 if hoja_encontrada != hoja_objetivo:
-                    print(f"✅ Mapeo case-insensitive: '{hoja_objetivo}' → '{hoja_encontrada}'")
+                    print(f"✅ Mapeo case-insensitive: '{hoja_objetivo}' -> '{hoja_encontrada}'")
             else:
                 logger.warning(f"Hoja '{hoja_objetivo}' no encontrada en {archivo_path}")
                 logger.warning(f"Hojas disponibles: {hojas_disponibles}")
@@ -107,12 +107,12 @@ def leer_excel_ultra_rapido(archivo_path, hojas_necesarias):
         
         end_time = time.time()
         tiempo_lectura = end_time - start_time
-        logger.debug(f"Lectura rápida case-insensitive de {len(hojas_necesarias)} hojas: {tiempo_lectura:.2f}s")
+        logger.debug(f"Lectura rapida case-insensitive de {len(hojas_necesarias)} hojas: {tiempo_lectura:.2f}s")
         
         return resultados
         
     except Exception as e:
-        logger.error(f"Error en lectura rápida case-insensitive de {archivo_path}: {e}")
+        logger.error(f"Error en lectura rapida case-insensitive de {archivo_path}: {e}")
         return leer_excel_fallback(archivo_path, hojas_necesarias)
 
 def leer_excel_fallback(archivo_path, hojas_necesarias):
@@ -139,7 +139,7 @@ def leer_excel_fallback(archivo_path, hojas_necesarias):
             if hoja_encontrada:
                 resultados[hoja_objetivo] = pd.read_excel(excel_file, sheet_name=hoja_encontrada)
                 if hoja_encontrada != hoja_objetivo:
-                    print(f"✅ Fallback case-insensitive: '{hoja_objetivo}' → '{hoja_encontrada}'")
+                    print(f"✅ Fallback case-insensitive: '{hoja_objetivo}' -> '{hoja_encontrada}'")
             else:
                 logger.warning(f"Hoja '{hoja_objetivo}' no encontrada en fallback")
                 resultados[hoja_objetivo] = pd.DataFrame()
@@ -383,29 +383,29 @@ def procesar_precio_sicep_rapido(datos_iniciales=DATOS_INICIALES):
     logger.info(f"Procesando PRECIO SICEP (optimizado) desde {datos_iniciales}")
     
     if not verificar_archivo_existe(datos_iniciales):
-        logger.error(f"No se encontró el archivo de datos iniciales: {datos_iniciales}")
+        logger.error(f"No se encontro el archivo de datos iniciales: {datos_iniciales}")
         return None
     
     if not verificar_hoja_existe(datos_iniciales, "PROYECCIÓN PRECIO SICEP"):
-        logger.info("No se encontró la hoja PROYECCIÓN PRECIO SICEP, se creará...")
+        logger.info("No se encontro la hoja PROYECCIÓN PRECIO SICEP, se creara...")
         if not verificar_hoja_existe(datos_iniciales, "PRECIO SICEP"):
-            logger.error("No se encontró la hoja PRECIO SICEP con los precios anuales")
+            logger.error("No se encontro la hoja PRECIO SICEP con los precios anuales")
             return None
         if not crear_proyeccion_precio_sicep(datos_iniciales):
-            logger.error("No se pudo crear la proyección de precios SICEP")
+            logger.error("No se pudo crear la proyeccion de precios SICEP")
             return None
     
     try:
         sicep_df = leer_excel_seguro(datos_iniciales, "PROYECCIÓN PRECIO SICEP")
         if sicep_df.empty:
-            logger.error("La hoja PROYECCIÓN PRECIO SICEP está vacía")
+            logger.error("La hoja PROYECCIÓN PRECIO SICEP esta vacia")
             return None
         
         sicep_df['FECHA'] = pd.to_datetime(sicep_df['FECHA'], errors='coerce').dt.date
         sicep_df = sicep_df.dropna(subset=['FECHA'])
         
         if 'PRECIO' not in sicep_df.columns:
-            logger.error("No se encontró la columna 'PRECIO' en la hoja PROYECCIÓN PRECIO SICEP")
+            logger.error("No se encontro la columna 'PRECIO' en la hoja PROYECCIÓN PRECIO SICEP")
             return None
             
         sicep_df['AUX'] = sicep_df['FECHA'].apply(lambda d: f"{d.year}-{d.month}")
@@ -432,7 +432,7 @@ def procesar_precio_bolsa_rapido(datos_iniciales=DATOS_INICIALES):
         return None
     
     if not verificar_hoja_existe(datos_iniciales, "P BOLSA"):
-        logger.error(f"No se encontró la hoja 'P BOLSA' en el archivo: {datos_iniciales}")
+        logger.error(f"No se encontro la hoja 'P BOLSA' en el archivo: {datos_iniciales}")
         return None
     
     try:
@@ -463,18 +463,18 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
     MANTIENE la velocidad pero AGREGA validación automática de nombres.
     Formato esperado: Agente-OFERTA-# (ejemplo: EPM-OFERTA-001.xlsx)
     """
-    print("🚀 INICIANDO PROCESAMIENTO OPTIMIZADO CON ESTANDARIZACIÓN")
+    print("🚀 INICIANDO PROCESAMIENTO OPTIMIZADO CON ESTANDARIZACION")
     start_total = time.time()
     
-    logger.info(f"Procesando ofertas (OPTIMIZADO CON ESTANDARIZACIÓN) en {carpeta_ofertas}")
+    logger.info(f"Procesando ofertas (OPTIMIZADO CON ESTANDARIZACION) en {carpeta_ofertas}")
     
     # Verificaciones iniciales (sin cambios)
     if not verificar_archivo_existe(datos_iniciales):
-        logger.error(f"No se encontró el archivo de datos iniciales: {datos_iniciales}")
+        logger.error(f"No se encontro el archivo de datos iniciales: {datos_iniciales}")
         return False
     
     if not os.path.exists(carpeta_ofertas):
-        logger.error(f"No se encontró la carpeta de ofertas: {carpeta_ofertas}")
+        logger.error(f"No se encontro la carpeta de ofertas: {carpeta_ofertas}")
         return False
     
     # Solicitar constante SICEP (sin cambios)
@@ -502,34 +502,34 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
     print("🔍 Buscando hoja INDEXADORES...")
     existe_indexadores, nombre_real_indexadores = verificar_hoja_existe_case_insensitive(datos_iniciales, "INDEXADORES")
     if not existe_indexadores:
-        logger.error("No se encontró la hoja INDEXADORES")
+        logger.error("No se encontro la hoja INDEXADORES")
         return False
     else:
         if nombre_real_indexadores != "INDEXADORES":
-            print(f"✅ Encontrada: 'INDEXADORES' → '{nombre_real_indexadores}'")
+            print(f"✅ Encontrada: 'INDEXADORES' -> '{nombre_real_indexadores}'")
     
     indexadores_df = leer_excel_case_insensitive(datos_iniciales, "INDEXADORES")
     if indexadores_df.empty:
-        logger.error("La hoja INDEXADORES está vacía")
+        logger.error("La hoja INDEXADORES esta vacia")
         return False
     
-    # Leer proyección con case-insensitive
+    # Leer proyeccion con case-insensitive
     print("🔍 Buscando hoja PROYECCIÓN INDEXADORES...")
     existe_proyeccion, nombre_real_proyeccion = verificar_hoja_existe_case_insensitive(datos_iniciales, "PROYECCIÓN INDEXADORES")
     if not existe_proyeccion:
-        logger.warning("No se encontró PROYECCIÓN INDEXADORES, se creará automáticamente")
+        logger.warning("No se encontro PROYECCIÓN INDEXADORES, se creara automáticamente")
         from core.indexadores import crear_proyeccion_indexadores
         if not crear_proyeccion_indexadores(datos_iniciales, carpeta_ofertas):
-            logger.error("No se pudo crear la proyección de indexadores")
+            logger.error("No se pudo crear la proyeccion de indexadores")
             return False
         proyeccion_df = leer_excel_case_insensitive(datos_iniciales, "PROYECCIÓN INDEXADORES")
     else:
         if nombre_real_proyeccion != "PROYECCIÓN INDEXADORES":
-            print(f"✅ Encontrada: 'PROYECCIÓN INDEXADORES' → '{nombre_real_proyeccion}'")
+            print(f"✅ Encontrada: 'PROYECCIÓN INDEXADORES' -> '{nombre_real_proyeccion}'")
         proyeccion_df = leer_excel_case_insensitive(datos_iniciales, "PROYECCIÓN INDEXADORES")
     
     if proyeccion_df.empty:
-        logger.error("La proyección de indexadores está vacía")
+        logger.error("La proyeccion de indexadores esta vacia")
         return False
     
     # Convertir fechas UNA sola vez (sin cambios)
@@ -587,7 +587,7 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
     
     # Mostrar resumen de validación
     resumen = validador.obtener_resumen_validacion()
-    print(f"📊 VALIDACIÓN: {resumen['ofertas_validas']} válidas, {resumen['ofertas_invalidas']} inválidas")
+    print(f"📊 VALIDACIÓN: {resumen['ofertas_validas']} validas, {resumen['ofertas_invalidas']} invalidas")
     
     if resumen['agentes_encontrados']:
         print(f"🏢 Agentes: {', '.join(resumen['agentes_encontrados'])}")
@@ -602,15 +602,15 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
         
         # Preguntar si continuar
         if resumen['ofertas_validas'] > 0:
-            continuar = input(f"\n¿Continuar con las {resumen['ofertas_validas']} ofertas válidas? (s/n): ")
+            continuar = input(f"\n¿Continuar con las {resumen['ofertas_validas']} ofertas validas? (s/n): ")
             if continuar.lower() != 's':
                 print("❌ Procesamiento cancelado")
                 return False
         else:
-            print("❌ No hay ofertas válidas para procesar")
+            print("❌ No hay ofertas validas para procesar")
             return False
     
-    print(f"🚀 Procesando {resumen['ofertas_validas']} ofertas válidas con lectura optimizada...\n")
+    print(f"🚀 Procesando {resumen['ofertas_validas']} ofertas validas con lectura optimizada...\n")
     # ===== FIN DE VALIDACIÓN =====
     
     # Inicializar contenedores de resultados (sin cambios)
@@ -846,7 +846,7 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
         end_total = time.time()
         tiempo_total = end_total - start_total
         
-        print(f"\n🎉 PROCESAMIENTO OPTIMIZADO CON ESTANDARIZACIÓN COMPLETADO:")
+        print(f"\n🎉 PROCESAMIENTO OPTIMIZADO CON ESTANDARIZACION COMPLETADO:")
         print(f"   ⚡ Tiempo total: {tiempo_total:.1f} segundos")
         print(f"   📊 Ofertas exitosas: {ofertas_exitosas}/{len(ofertas_validas)}")
         print(f"   ❌ Ofertas con errores: {ofertas_con_errores}")
@@ -854,7 +854,7 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
         print(f"   ⚡ Velocidad: {total_registros/tiempo_total:.0f} registros/segundo")
         print(f"   🏢 Agentes procesados: {', '.join(sorted(resumen['agentes_encontrados']))}")
         print(f"   💾 Archivo guardado: {archivo_salida}")
-        print(f"   ✅ ESTANDARIZACIÓN: Nombres validados automáticamente")
+        print(f"   ✅ ESTANDARIZACION: Nombres validados automáticamente")
         
         # Desglose por agente MEJORADO
         if cantidades_precios_df is not None and not cantidades_precios_df.empty:
