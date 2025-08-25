@@ -334,6 +334,7 @@ def leer_ofertas_evaluadas(archivo_ofertas, sheet_name="CANTIDADES Y PRECIOS", s
 def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
     """
     Exporta los resultados de la optimización al formato específico requerido.
+    VERSIÓN CORREGIDA: Elimina duplicación en ofertas rechazadas.
     Consolida todas las iteraciones en una sola hoja por oferta.
     También crea un archivo secundario con todas las iteraciones para análisis.
     
@@ -344,6 +345,12 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
     Returns:
         bool: True si la exportación fue exitosa, False en caso contrario
     """
+    import pandas as pd
+    import logging
+    from pathlib import Path
+    
+    logger = logging.getLogger(__name__)
+    
     archivo_salida = Path(archivo_salida)
     logger.info(f"Exportando resultados al archivo: {archivo_salida}")
     print(f"Exportando resultados al archivo: {archivo_salida}")
@@ -361,13 +368,22 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
     try:
         # Primero, leer los datos originales de las ofertas para obtener las cantidades totales
         ofertas_originales = {}
-        ofertas_rechazadas_por_precio = {}  # Para almacenar ofertas que no cumplieron evaluación
+        ofertas_rechazadas_por_precio = {}  # CORREGIDO: Usar dict en lugar de list
         
         try:
             # Leer la hoja CANTIDADES Y PRECIOS para obtener información de ofertas originales
             ofertas_df = pd.read_excel(archivo_salida, sheet_name="CANTIDADES Y PRECIOS")
             if not ofertas_df.empty:
-                for idx, row in ofertas_df.iterrows():
+                
+                # CORRECCIÓN CRÍTICA 1: Deduplicar ANTES de procesar
+                print(f"Datos originales: {len(ofertas_df)} registros")
+                ofertas_df_unique = ofertas_df.drop_duplicates(
+                    subset=['CÓDIGO OFERTA', 'FECHA', 'Atributo'], 
+                    keep='first'
+                )
+                print(f"Datos únicos: {len(ofertas_df_unique)} registros (eliminados {len(ofertas_df) - len(ofertas_df_unique)} duplicados)")
+                
+                for idx, row in ofertas_df_unique.iterrows():  # USAR DATOS ÚNICOS
                     oferta = row.get('CÓDIGO OFERTA', '')
                     fecha = row.get('FECHA', None)
                     hora = row.get('Atributo', None)
@@ -383,27 +399,31 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                             'precio': precio
                         }
                         
-                        # Si la evaluación es 0, guardar para reporte de rechazadas
+                        # CORRECCIÓN CRÍTICA 2: Construcción mejorada de rechazadas
                         if evaluacion == 0:
                             if oferta not in ofertas_rechazadas_por_precio:
-                                ofertas_rechazadas_por_precio[oferta] = []
+                                ofertas_rechazadas_por_precio[oferta] = {}  # Usar dict en lugar de list
                             
-                            ofertas_rechazadas_por_precio[oferta].append({
-                                'FECHA': fecha,
-                                'HORA': hora,
-                                'CANTIDAD': cantidad,
-                                'PRECIO': precio
-                            })
-            
-            if ofertas_originales:
-                print(f"Información de {len(ofertas_originales)} registros originales cargada correctamente")
+                            # Usar fecha+hora como clave para evitar duplicados automáticamente
+                            clave_unica = (fecha, hora)
+                            if clave_unica not in ofertas_rechazadas_por_precio[oferta]:
+                                ofertas_rechazadas_por_precio[oferta][clave_unica] = {
+                                    'FECHA': fecha,
+                                    'HORA': hora,
+                                    'CANTIDAD': cantidad,
+                                    'PRECIO': precio
+                                }
                 
-                # Mostrar cuántas ofertas no cumplieron evaluación
-                rechazadas_count = sum(len(items) for items in ofertas_rechazadas_por_precio.values())
-                if rechazadas_count > 0:
-                    print(f"Se encontraron {rechazadas_count} registros que no cumplieron la evaluación de precio")
-            else:
-                print("No se encontró información de ofertas originales")
+                if ofertas_originales:
+                    print(f"Información de {len(ofertas_originales)} registros únicos cargada")
+                    
+                    # Mostrar estadísticas de rechazo
+                    total_rechazados = sum(len(items) for items in ofertas_rechazadas_por_precio.values())
+                    if total_rechazados > 0:
+                        print(f"Ofertas rechazadas: {len(ofertas_rechazadas_por_precio)} ofertas con {total_rechazados} registros únicos")
+                else:
+                    print("No se encontró información de ofertas originales")
+                    
         except Exception as e:
             logger.warning(f"No se pudo leer información original de ofertas: {e}")
             print(f"No se pudo leer información original de ofertas: {e}")
@@ -509,31 +529,12 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                             # Si no hay datos de compras, no hay datos para no compradas
                             continue
                     
-                    # Ahora, combinar la energía no asignada de la optimización con la rechazada por precio
-                    # Crear una copia del DataFrame no comprado para añadir lo rechazado por precio
+                    # CORRECCIÓN CRÍTICA: NO mezclar datos de optimizador con rechazados
+                    # Los datos rechazados por precio YA están incluidos en el modelo
+                    # Solo usar los datos del optimizador que ya incluyen todo
                     df_no_comprado_total = df_no_comprado_consolidado.copy()
                     
-                    # Añadir las ofertas rechazadas por precio
-                    if oferta in ofertas_rechazadas_por_precio:
-                        rechazadas = ofertas_rechazadas_por_precio[oferta]
-                        for item in rechazadas:
-                            fecha = item['FECHA']
-                            hora = item['HORA']
-                            cantidad = item['CANTIDAD']
-                            
-                            # Buscar la fila para esta fecha
-                            fecha_rows = df_no_comprado_total[df_no_comprado_total['FECHA'] == fecha]
-                            if len(fecha_rows) > 0:
-                                # Si existe la fila, actualizar el valor para esta hora
-                                df_no_comprado_total.loc[df_no_comprado_total['FECHA'] == fecha, hora] = cantidad
-                            else:
-                                # Si no existe la fila, crear una nueva
-                                nueva_fila = {'FECHA': fecha}
-                                for h in range(1, 25):
-                                    nueva_fila[h] = cantidad if h == hora else 0
-                                
-                                # Añadir la fila al DataFrame
-                                df_no_comprado_total = pd.concat([df_no_comprado_total, pd.DataFrame([nueva_fila])], ignore_index=True)
+                    print(f"ENA consolidada para {oferta}: usando solo datos del optimizador (sin duplicar rechazos)")
                     
                     # Si tenemos datos consolidados, exportar
                     if not df_comprar_consolidado.empty:
@@ -594,10 +595,14 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                         df_final_no_comprada.to_excel(writer, sheet_name=sheet_name_ena, index=False)
                         logger.info(f"Hoja exportada: {sheet_name_ena}")
                 else:
-                    # CASO 2: La oferta fue completamente rechazada por precio
-                    # Verificar si tiene datos de rechazo
+                    # CASO 2: La oferta fue completamente rechazada por precio - CORREGIDO
                     if oferta in ofertas_rechazadas_por_precio:
-                        rechazadas = ofertas_rechazadas_por_precio[oferta]
+                        rechazadas_dict = ofertas_rechazadas_por_precio[oferta]  # Ahora es dict
+                        
+                        # Convertir dict a lista para compatibilidad
+                        rechazadas = list(rechazadas_dict.values())
+                        
+                        print(f"Procesando oferta completamente rechazada: {oferta} ({len(rechazadas)} registros únicos)")
                         
                         # 1. Crear DataFrame para DA (todos ceros)
                         fechas_unicas = sorted(list(set(item['FECHA'] for item in rechazadas)))
@@ -615,30 +620,25 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                             
                             # Convertir fechas a formato string DD/MM/YYYY
                             da_df["X"] = da_df["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
-                            
-                            # Eliminar columna FECHA (mantener sólo X)
                             da_df = da_df.drop(columns=["FECHA"])
                             
-                            # Añadir un título para el cuadro
+                            # Añadir título
                             titulo_da = pd.DataFrame({
                                 "X": ["ENERGÍA A COMPRAR AL VENDEDOR"],
-                                **{i: [None] for i in range(1, 25)}  # Columnas del 1 al 24
+                                **{i: [None] for i in range(1, 25)}
                             })
                             
-                            # Concatenar título y datos
                             df_final_da = pd.concat([titulo_da, da_df], ignore_index=True)
                             
-                            # Asegurar que el nombre de la hoja no exceda los 31 caracteres
                             sheet_name = f"DA-{oferta}"
                             if len(sheet_name) > 31:
                                 sheet_name = sheet_name[:31]
                             
-                            # Exportar sin el índice
                             df_final_da.to_excel(writer, sheet_name=sheet_name, index=False)
-                            logger.info(f"Hoja DA exportada para oferta completamente rechazada: {oferta}")
-                            print(f"Hoja DA exportada para oferta completamente rechazada: {oferta}")
+                            logger.info(f"Hoja DA exportada para oferta rechazada: {oferta}")
+                            print(f"Hoja DA exportada para oferta rechazada: {oferta}")
                         
-                        # 2. Crear DataFrame para ENA (valores originales)
+                        # 2. Crear DataFrame para ENA (valores originales) - SIN DUPLICADOS
                         ena_rows = []
                         for fecha in fechas_unicas:
                             row = {"FECHA": fecha}
@@ -646,10 +646,20 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                             for hora in range(1, 25):
                                 row[hora] = 0
                             
-                            # Luego, actualizar con los valores reales de las ofertas rechazadas
+                            # CORRECCIÓN: Usar dict para evitar duplicados automáticamente
+                            # Solo agregar datos únicos por fecha-hora
+                            datos_fecha = {}
                             for item in rechazadas:
                                 if item['FECHA'] == fecha:
-                                    row[item['HORA']] = item['CANTIDAD']
+                                    hora = item['HORA']
+                                    if 1 <= hora <= 24:
+                                        # Solo tomar el primer valor para cada hora
+                                        if hora not in datos_fecha:
+                                            datos_fecha[hora] = item['CANTIDAD']
+                            
+                            # Aplicar los datos únicos
+                            for hora, cantidad in datos_fecha.items():
+                                row[hora] = cantidad
                             
                             ena_rows.append(row)
                         
@@ -658,28 +668,25 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                             
                             # Convertir fechas a formato string DD/MM/YYYY
                             ena_df["X"] = ena_df["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
-                            
-                            # Eliminar columna FECHA (mantener sólo X)
                             ena_df = ena_df.drop(columns=["FECHA"])
                             
-                            # Añadir un título para el cuadro
+                            # Añadir título
                             titulo_ena = pd.DataFrame({
                                 "X": ["ENERGÍA NO COMPRADA AL VENDEDOR"],
-                                **{i: [None] for i in range(1, 25)}  # Columnas del 1 al 24
+                                **{i: [None] for i in range(1, 25)}
                             })
                             
-                            # Concatenar título y datos
                             df_final_ena = pd.concat([titulo_ena, ena_df], ignore_index=True)
                             
-                            # Nombre de la hoja
                             sheet_name_ena = f"ENA-{oferta}"
                             if len(sheet_name_ena) > 31:
                                 sheet_name_ena = sheet_name_ena[:31]
                             
-                            # Exportar sin el índice
                             df_final_ena.to_excel(writer, sheet_name=sheet_name_ena, index=False)
-                            logger.info(f"Hoja ENA exportada para oferta completamente rechazada: {oferta}")
-                            print(f"Hoja ENA exportada para oferta completamente rechazada: {oferta}")
+                            logger.info(f"Hoja ENA exportada para oferta rechazada: {oferta}")
+                            print(f"Hoja ENA exportada para oferta rechazada: {oferta}")
+                    else:
+                        print(f"Advertencia: Oferta {oferta} no tiene datos de rechazo disponibles")
             
             # 2. Exportar hoja de DEMANDA FALTANTE
             if "DEMANDA_FALTANTE" in resultados_dict:
@@ -705,13 +712,12 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
             # Exportar hoja de RESUMEN EJECUTIVO (reemplaza a las hojas RESUMEN y RESUMEN SIN INDEXAR)
             if "RESUMEN EJECUTIVO" in resultados_dict:
                 df_export = resultados_dict["RESUMEN EJECUTIVO"].copy()
-                # ========== LOGS DE DEBUG ==========
                 print(f"DEBUG - Columnas en RESUMEN EJECUTIVO antes de exportar: {df_export.columns.tolist()}")
                 print(f"DEBUG - ¿Contiene BTG? {any('BTG' in str(col) for col in df_export.columns)}")
                 print(f"DEBUG - Número de filas en resumen: {len(df_export)}")
                 if len(df_export) > 0:
                     print(f"DEBUG - Primera fila de datos: {df_export.iloc[0].to_dict()}")
-                # ========== FIN DE LOGS DE DEBUG ==========
+                
                 # El formato de fecha ya está establecido como MM/YYYY
                 # No reordenar, preservar el orden original
                 
@@ -732,16 +738,21 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                 df_final.to_excel(writer, sheet_name="RESUMEN EJECUTIVO", index=False)
                 logger.info(f"Hoja exportada: RESUMEN EJECUTIVO")
             
-            # NUEVO: Exportar un resumen de ofertas rechazadas por precio
+            # NUEVO: Exportar un resumen de ofertas rechazadas por precio - CORREGIDO
             if ofertas_rechazadas_por_precio:
-                # Datos para el resumen
                 resumen_datos = []
                 
                 # Para cada oferta con rechazos por precio
-                for oferta, rechazadas in ofertas_rechazadas_por_precio.items():
+                for oferta, rechazadas_dict in ofertas_rechazadas_por_precio.items():  # Ahora es dict
+                    # Convertir dict a lista para cálculos
+                    rechazadas = list(rechazadas_dict.values())
+                    
                     # Calcular estadísticas
                     total_rechazado = sum(item['CANTIDAD'] for item in rechazadas)
-                    precio_promedio = sum(item['PRECIO'] * item['CANTIDAD'] for item in rechazadas) / total_rechazado if total_rechazado > 0 else 0
+                    precio_promedio = (
+                        sum(item['PRECIO'] * item['CANTIDAD'] for item in rechazadas) / total_rechazado 
+                        if total_rechazado > 0 else 0
+                    )
                     
                     resumen_datos.append({
                         'OFERTA': oferta,
@@ -750,16 +761,16 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                         'PRECIO PROMEDIO ($/KWh)': precio_promedio
                     })
                 
-                # Crear DataFrame con el resumen
                 if resumen_datos:
                     df_resumen_rechazos = pd.DataFrame(resumen_datos)
+                    df_resumen_rechazos = df_resumen_rechazos.sort_values(
+                        by='CANTIDAD TOTAL RECHAZADA (KWh)', 
+                        ascending=False
+                    )
                     
-                    # Ordenar por cantidad total rechazada (descendente)
-                    df_resumen_rechazos = df_resumen_rechazos.sort_values(by='CANTIDAD TOTAL RECHAZADA (KWh)', ascending=False)
-                    
-                    # Exportar resumen
                     df_resumen_rechazos.to_excel(writer, sheet_name="RESUMEN RECHAZOS PRECIO", index=False)
                     logger.info("Hoja de resumen de rechazos por precio exportada")
+                    print(f"Resumen de rechazos generado: {len(resumen_datos)} ofertas")
         
         print(f"Resultados consolidados exportados exitosamente a: {archivo_salida}")
         
@@ -886,9 +897,6 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
             
             print(f"Intentando crear un archivo nuevo en: {nueva_ruta}")
             
-            # En un entorno de producción, aquí se implementaría la misma lógica de exportación
-            # Por simplicidad, solo registramos el error
-            
             logger.exception(f"Error al crear archivo alternativo: {e}")
             print(f"ERROR: No se pudo crear archivo alternativo: {e}")
             return False
@@ -896,8 +904,8 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
         except Exception as alt_e:
             logger.exception(f"Error al crear archivo alternativo: {alt_e}")
             print(f"ERROR: No se pudo crear archivo alternativo: {alt_e}")
-            return False     
-        
+            return False
+              
 def cargar_resultados_desde_excel(archivo_resultados):
     """
     Carga los resultados de optimización desde un archivo Excel existente

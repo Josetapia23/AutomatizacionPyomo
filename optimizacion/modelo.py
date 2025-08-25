@@ -271,7 +271,7 @@ def construir_modelo(demanda_df, ofertas_df):
 def extraer_resultados(model, ofertas_df=None, log_detallado=False):
     """
     Extrae los resultados del modelo optimizado y los organiza en DataFrames.
-    VERSIÓN FINAL: Genera hojas DA y ENA para TODAS las ofertas del modelo.
+    VERSIÓN CORREGIDA: Elimina duplicación en hojas ENA.
     
     Args:
         model (ConcreteModel): Modelo Pyomo resuelto
@@ -281,6 +281,12 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
     Returns:
         dict: Diccionario con los DataFrames de resultados
     """
+    import pyomo.environ as pyo
+    import pandas as pd
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
     logger.info("Extrayendo resultados del modelo...")
     print("Extrayendo resultados del modelo...")
     
@@ -299,18 +305,14 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
         # Obtener TODAS las ofertas únicas del DataFrame original
         todas_las_ofertas_df = ofertas_df['CÓDIGO OFERTA'].unique().tolist()
         
-         # ========== LOGS DE DEBUG ADICIONALES ==========
         print(f"DEBUG - TODAS las ofertas en DataFrame original: {todas_las_ofertas_df}")
         print(f"DEBUG - Ofertas válidas del modelo: {ofertas_validas}")
-        # ========== FIN DEBUG ==========
         
         # Identificar ofertas rechazadas (las que NO están en ofertas_validas)
         ofertas_rechazadas = [oferta for oferta in todas_las_ofertas_df if oferta not in ofertas_validas]
     
     # TODAS las ofertas (válidas + rechazadas)
     todas_las_ofertas = ofertas_validas + ofertas_rechazadas
-    
-    print(f"DEBUG - Ofertas válidas identificadas: {ofertas_validas}")
     
     print(f"Ofertas válidas para optimización: {ofertas_validas}")
     print(f"Ofertas rechazadas por evaluación: {ofertas_rechazadas}")
@@ -332,16 +334,16 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
     
     try:
         # ========================================
-        # NUEVO: USAR DIRECTAMENTE LOS RESULTADOS DEL OPTIMIZADOR
+        # PROCESAR OFERTAS VÁLIDAS DEL OPTIMIZADOR
         # ========================================
         
-        print(f"\n🔄 Extrayendo asignaciones directas del optimizador...")
+        print(f"\nExtrayendo asignaciones directas del optimizador...")
         
         # Para cada oferta del modelo, extraer resultados directamente
         ofertas_procesadas = []
         
         for oferta in ofertas_validas:
-            print(f"\n📊 Procesando oferta: {oferta}")
+            print(f"\nProcesando oferta: {oferta}")
             
             # Extraer asignaciones del optimizador
             da_rows = []
@@ -377,38 +379,46 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
             # Determinar si la oferta fue procesada (tiene asignaciones > 0)
             if total_asignado > 0:
                 ofertas_procesadas.append(oferta)
-                print(f"  ✅ {oferta} - Asignado: {total_asignado:.2f} kWh")
+                print(f"  {oferta} - Asignado: {total_asignado:.2f} kWh")
             else:
-                print(f"  ❌ {oferta} - Sin asignaciones (precio alto o sin demanda)")
+                print(f"  {oferta} - Sin asignaciones (precio alto o sin demanda)")
             
             # Generar hojas DA y ENA para TODAS las ofertas (con o sin asignaciones)
             if da_rows:
                 da_df = pd.DataFrame(da_rows)
                 resultados[f"DEMANDA ASIGNADA {oferta} IT1_COMPRAR"] = da_df
-                print(f"  📄 Hoja DA generada para {oferta}")
+                print(f"  Hoja DA generada para {oferta}")
             
             if ena_rows:
                 ena_df = pd.DataFrame(ena_rows)
                 resultados[f"DEMANDA ASIGNADA {oferta} IT1_NO_COMPRADA"] = ena_df
-                print(f"  📄 Hoja ENA generada para {oferta}")
+                print(f"  Hoja ENA generada para {oferta}")
         
         # ========================================
-        # GENERAR HOJAS PARA OFERTAS RECHAZADAS
+        # GENERAR HOJAS PARA OFERTAS RECHAZADAS - CORREGIDO
         # ========================================
         
-        print(f"\n🔄 Generando hojas para {len(ofertas_rechazadas)} ofertas rechazadas...")
+        print(f"\nGenerando hojas para {len(ofertas_rechazadas)} ofertas rechazadas...")
         
         for oferta in ofertas_rechazadas:
             if ofertas_df is not None:
                 oferta_data = ofertas_df[ofertas_df['CÓDIGO OFERTA'] == oferta]
                 if not oferta_data.empty:
-                    print(f"  📋 Generando hojas para {oferta} (rechazada por evaluación)")
+                    print(f"  Generando hojas para {oferta} (rechazada por evaluación)")
+                    
+                    # CORRECCIÓN CRÍTICA: Deduplicar datos ANTES de procesar
+                    oferta_data_unique = oferta_data.drop_duplicates(
+                        subset=['FECHA', 'Atributo'], 
+                        keep='first'
+                    )
+                    
+                    print(f"    Datos originales: {len(oferta_data)}, Únicos: {len(oferta_data_unique)}")
                     
                     # DA: Todo en 0 (no se compró nada)
-                    # ENA: Capacidad completa (todo disponible)
+                    # ENA: Capacidad completa (todo disponible) - SIN DUPLICADOS
                     da_rows = []
                     ena_rows = []
-                    fechas_unicas = sorted(oferta_data['FECHA'].unique())
+                    fechas_unicas = sorted(oferta_data_unique['FECHA'].unique())
                     
                     for fecha in fechas_unicas:
                         fila_da = {"FECHA": fecha, "X": fecha}
@@ -417,15 +427,24 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
                         # Inicializar todas las horas
                         for hora in range(1, 25):
                             fila_da[hora] = 0  # DA: Todo en 0
-                            fila_ena[hora] = 0  # ENA: Se llenará con datos reales
+                            fila_ena[hora] = 0  # ENA: Se llenará con datos únicos
                         
-                        # Llenar ENA con capacidad original
-                        data_fecha = oferta_data[oferta_data['FECHA'] == fecha]
+                        # CORRECCIÓN: Llenar ENA con datos únicos solamente
+                        data_fecha = oferta_data_unique[oferta_data_unique['FECHA'] == fecha]
+                        
+                        # Crear diccionario para evitar duplicados por hora
+                        datos_por_hora = {}
                         for _, row in data_fecha.iterrows():
-                            hora = row['Atributo']
+                            hora = int(row['Atributo'])
                             cantidad = row['CANTIDAD']
                             if 1 <= hora <= 24:
-                                fila_ena[hora] = cantidad
+                                # Solo tomar el primer valor para cada hora
+                                if hora not in datos_por_hora:
+                                    datos_por_hora[hora] = cantidad
+                        
+                        # Aplicar los datos únicos
+                        for hora, cantidad in datos_por_hora.items():
+                            fila_ena[hora] = cantidad
                         
                         da_rows.append(fila_da)
                         ena_rows.append(fila_ena)
@@ -437,13 +456,15 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
                         resultados[f"DEMANDA ASIGNADA {oferta} IT1_COMPRAR"] = da_df
                         resultados[f"DEMANDA ASIGNADA {oferta} IT1_NO_COMPRADA"] = ena_df
                         
-                        print(f"  ✅ Hojas DA y ENA generadas para {oferta}")
+                        print(f"  Hojas DA y ENA generadas para {oferta} (sin duplicados)")
+                    else:
+                        print(f"  No se generaron datos para {oferta}")
         
         # ========================================
         # CALCULAR DEMANDA FALTANTE
         # ========================================
         
-        print(f"\n📊 Calculando demanda faltante...")
+        print(f"\nCalculando demanda faltante...")
         demanda_faltante = []
         
         for fecha in todas_fechas:
@@ -468,13 +489,13 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
         if demanda_faltante:
             df_faltante = pd.DataFrame(demanda_faltante)
             resultados["DEMANDA_FALTANTE"] = df_faltante
-            print(f"✅ Demanda faltante calculada")
+            print(f"Demanda faltante calculada")
         
         # ========================================
         # GENERAR RESUMEN EJECUTIVO
         # ========================================
         
-        print(f"\n📋 Generando resumen ejecutivo...")
+        print(f"\nGenerando resumen ejecutivo...")
         resumen_ejecutivo_rows = []
         
         # Agrupar fechas por mes
@@ -575,7 +596,7 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
         if resumen_ejecutivo_rows:
             resumen_df = pd.DataFrame(resumen_ejecutivo_rows)
             resultados["RESUMEN EJECUTIVO"] = resumen_df
-            print(f"✅ Resumen ejecutivo generado")
+            print(f"Resumen ejecutivo generado")
         
         # ========================================
         # ESTADÍSTICAS FINALES
@@ -597,10 +618,9 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
             porcentaje_cubierto = (total_asignado / total_demanda) * 100
             logger.info(f"Porcentaje cubierto: {porcentaje_cubierto:.2f}%")
         
-        print(f"\n🎯 RESUMEN FINAL:")
-        print(f"   📊 Total ofertas procesadas: {len(todas_las_ofertas)}")
-        print(f"   📄 Hojas DA/ENA generadas: {len([k for k in resultados.keys() if 'DEMANDA ASIGNADA' in k])}")
-        print(f"   ✅ BTG-002 incluida con hojas DA y ENA")
+        print(f"\nRESUMEN FINAL:")
+        print(f"   Total ofertas procesadas: {len(todas_las_ofertas)}")
+        print(f"   Hojas DA/ENA generadas: {len([k for k in resultados.keys() if 'DEMANDA ASIGNADA' in k])}")
         
     except Exception as e:
         print(f"ERROR GENERAL en extraer_resultados: {e}")
