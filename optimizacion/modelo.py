@@ -271,11 +271,11 @@ def construir_modelo(demanda_df, ofertas_df):
 def extraer_resultados(model, ofertas_df=None, log_detallado=False):
     """
     Extrae los resultados del modelo optimizado y los organiza en DataFrames.
-    VERSIÓN CORREGIDA: Elimina duplicación en hojas ENA.
+    VERSIÓN CORREGIDA: Garantiza conservación total de energía procesando TODAS las fechas.
     
     Args:
         model (ConcreteModel): Modelo Pyomo resuelto
-        ofertas_df (DataFrame, opcional): DataFrame con las ofertas originales
+        ofertas_df (DataFrame, opcional): DataFrame con las ofertas originales COMPLETAS
         log_detallado (bool, opcional): Si es True, muestra detalles de asignación por hora
         
     Returns:
@@ -287,70 +287,75 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
     
     logger = logging.getLogger(__name__)
     
-    logger.info("Extrayendo resultados del modelo...")
-    print("Extrayendo resultados del modelo...")
+    logger.info("Extrayendo resultados del modelo con conservación TOTAL de energía...")
+    print("Extrayendo resultados del modelo con conservación TOTAL de energía...")
     
-    # Identificar todas las ofertas que tienen combinaciones válidas en el modelo
-    ofertas_validas = []
-    for i in model.I:
-        # Una oferta es válida si tiene al menos una combinación en model.OFH
-        if any((i, a, h) in model.OFH for a in model.A for h in model.H):
-            ofertas_validas.append(i)
-    
-    # NUEVO: También obtener ofertas que no pasaron la evaluación desde ofertas_df
-    ofertas_rechazadas = []
-    todas_las_ofertas_df = []
-    
-    if ofertas_df is not None:
-        # Obtener TODAS las ofertas únicas del DataFrame original
-        todas_las_ofertas_df = ofertas_df['CÓDIGO OFERTA'].unique().tolist()
-        
-        print(f"DEBUG - TODAS las ofertas en DataFrame original: {todas_las_ofertas_df}")
-        print(f"DEBUG - Ofertas válidas del modelo: {ofertas_validas}")
-        
-        # Identificar ofertas rechazadas (las que NO están en ofertas_validas)
-        ofertas_rechazadas = [oferta for oferta in todas_las_ofertas_df if oferta not in ofertas_validas]
-    
-    # TODAS las ofertas (válidas + rechazadas)
-    todas_las_ofertas = ofertas_validas + ofertas_rechazadas
-    
-    print(f"Ofertas válidas para optimización: {ofertas_validas}")
-    print(f"Ofertas rechazadas por evaluación: {ofertas_rechazadas}")
-    print(f"Total de ofertas a incluir en resumen: {todas_las_ofertas}")
-    
-    # Verificar que hay ofertas válidas
-    if not ofertas_validas:
-        print("ADVERTENCIA: No hay ofertas válidas. No se pueden generar resultados.")
+    # Verificar que tenemos datos originales completos
+    if ofertas_df is None or ofertas_df.empty:
+        print("ERROR: Se requieren datos completos de ofertas para conservar energía")
         return {}
     
-    # Obtener todas las fechas y horas del modelo
-    todas_fechas = sorted(list(model.A))
-    todas_horas = sorted(list(model.H))
+    # ========================================
+    # PASO 1: CLASIFICAR OFERTAS CORRECTAMENTE
+    # ========================================
     
-    print(f"Procesando {len(todas_fechas)} fechas y {len(todas_horas)} horas")
+    # Obtener TODAS las ofertas del archivo original
+    todas_las_ofertas_originales = sorted(ofertas_df['CÓDIGO OFERTA'].unique())
+    
+    # Identificar ofertas que SÍ están en el modelo Pyomo (tienen combinaciones en model.OFH)
+    ofertas_en_modelo_pyomo = []
+    for i in model.I:
+        if any((i, a, h) in model.OFH for a in model.A for h in model.H):
+            ofertas_en_modelo_pyomo.append(i)
+    
+    # Ofertas NO en modelo = todas las demás
+    ofertas_fuera_modelo = [oferta for oferta in todas_las_ofertas_originales 
+                           if oferta not in ofertas_en_modelo_pyomo]
+    
+    print(f"\n📊 CLASIFICACIÓN DE OFERTAS:")
+    print(f"   Total ofertas originales: {len(todas_las_ofertas_originales)}")
+    print(f"   EN modelo Pyomo: {len(ofertas_en_modelo_pyomo)} - {ofertas_en_modelo_pyomo}")
+    print(f"   FUERA modelo: {len(ofertas_fuera_modelo)} - {ofertas_fuera_modelo}")
+    
+    # Obtener fechas del modelo Pyomo
+    fechas_modelo_pyomo = sorted(list(model.A))
+    horas_modelo = sorted(list(model.H))
+    
+    print(f"   Fechas en modelo Pyomo: {len(fechas_modelo_pyomo)}")
+    print(f"   Rango Pyomo: {min(fechas_modelo_pyomo)} a {max(fechas_modelo_pyomo)}")
     
     # Diccionario para almacenar todos los resultados
     resultados = {}
     
     try:
         # ========================================
-        # PROCESAR OFERTAS VÁLIDAS DEL OPTIMIZADOR
+        # PASO 2: PROCESAR OFERTAS EN MODELO PYOMO - TODAS SUS FECHAS
         # ========================================
         
-        print(f"\nExtrayendo asignaciones directas del optimizador...")
+        print(f"\n🔄 PASO 2: Procesando ofertas EN modelo Pyomo...")
         
-        # Para cada oferta del modelo, extraer resultados directamente
-        ofertas_procesadas = []
-        
-        for oferta in ofertas_validas:
-            print(f"\nProcesando oferta: {oferta}")
+        for oferta in ofertas_en_modelo_pyomo:
+            print(f"\n  📋 Procesando oferta: {oferta}")
             
-            # Extraer asignaciones del optimizador
+            # Obtener TODAS las fechas originales de esta oferta (no solo las del modelo)
+            oferta_data_completa = ofertas_df[ofertas_df['CÓDIGO OFERTA'] == oferta]
+            todas_fechas_oferta = sorted(oferta_data_completa['FECHA'].unique())
+            
+            # Separar fechas EN modelo vs FUERA del modelo
+            fechas_en_modelo = [f for f in todas_fechas_oferta if f in fechas_modelo_pyomo]
+            fechas_fuera_modelo = [f for f in todas_fechas_oferta if f not in fechas_modelo_pyomo]
+            
+            print(f"     Fechas EN modelo: {len(fechas_en_modelo)}")
+            print(f"     Fechas FUERA modelo: {len(fechas_fuera_modelo)}")
+            
+            # Inicializar estructuras de datos
             da_rows = []
             ena_rows = []
-            total_asignado = 0
+            total_asignado_pyomo = 0
+            total_capacidad_fuera_modelo = 0
             
-            for fecha in todas_fechas:
+            # PROCESAR TODAS LAS FECHAS (EN + FUERA del modelo)
+            for fecha in todas_fechas_oferta:
                 fila_da = {"FECHA": fecha, "X": fecha}
                 fila_ena = {"FECHA": fecha, "X": fecha}
                 
@@ -359,124 +364,234 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
                     fila_da[hora] = 0
                     fila_ena[hora] = 0
                 
-                # Llenar con valores del modelo
-                for hora in todas_horas:
-                    if (oferta, fecha, hora) in model.OFH:
-                        # Obtener asignación del optimizador
-                        asignacion = pyo.value(model.EA[oferta, fecha, hora]) if (oferta, fecha, hora) in model.EA else 0
-                        capacidad = pyo.value(model.CO[oferta, fecha, hora]) if (oferta, fecha, hora) in model.CO else 0
+                if fecha in fechas_en_modelo:
+                    # FECHAS EN MODELO PYOMO: Usar resultados del optimizador + recuperar filtrados
+                    data_fecha_modelo = oferta_data_completa[oferta_data_completa['FECHA'] == fecha]
+                    
+                    # PASO 1: Procesar combinaciones EN model.OFH (optimizadas)
+                    for hora in horas_modelo:
+                        if (oferta, fecha, hora) in model.OFH:
+                            # Obtener asignación y capacidad del optimizador
+                            asignacion = pyo.value(model.EA[oferta, fecha, hora]) if (oferta, fecha, hora) in model.EA else 0
+                            capacidad = pyo.value(model.CO[oferta, fecha, hora]) if (oferta, fecha, hora) in model.CO else 0
+                            
+                            # DA = Lo que asignó el optimizador
+                            fila_da[hora] = asignacion
+                            total_asignado_pyomo += asignacion
+                            
+                            # ENA = Capacidad - asignado
+                            fila_ena[hora] = max(0, capacidad - asignacion)
+                    
+                    # PASO 2: RECUPERAR combinaciones FILTRADAS (no en model.OFH)
+                    # Agregar por hora todos los datos originales que NO se optimizaron
+                    capacidades_filtradas_por_hora = {}
+                    for hora in range(1, 25):
+                        capacidades_filtradas_por_hora[hora] = 0
+                    
+                    # SUMAR todos los registros originales para esta fecha
+                    for _, row in data_fecha_modelo.iterrows():
+                        hora = int(row['Atributo'])
+                        cantidad = row['CANTIDAD']
                         
-                        # DA = Lo que asignó el optimizador
-                        fila_da[hora] = asignacion
-                        total_asignado += asignacion
+                        if (1 <= hora <= 24 and not pd.isna(cantidad) and 
+                            (oferta, fecha, hora) not in model.OFH):  # Solo los que NO están en OFH
+                            capacidades_filtradas_por_hora[hora] += cantidad
+                            total_capacidad_fuera_modelo += cantidad
+                    
+                    # Agregar capacidad filtrada a ENA (DA sigue siendo 0 para estas)
+                    for hora in range(1, 25):
+                        fila_ena[hora] += capacidades_filtradas_por_hora[hora]
+                
+                else:
+                    # FECHAS FUERA DEL MODELO: Usar datos originales completos
+                    data_fecha = oferta_data_completa[oferta_data_completa['FECHA'] == fecha]
+                    
+                    # Agregar por hora (pueden existir múltiples registros válidos)
+                    capacidades_por_hora = {}
+                    for hora in range(1, 25):
+                        capacidades_por_hora[hora] = 0
+                    
+                    # SUMAR todos los registros para la misma fecha-hora
+                    for _, row in data_fecha.iterrows():
+                        hora = int(row['Atributo'])
+                        cantidad = row['CANTIDAD']
                         
-                        # ENA = Capacidad disponible - asignado
-                        fila_ena[hora] = max(0, capacidad - asignacion)
+                        if 1 <= hora <= 24 and not pd.isna(cantidad):
+                            capacidades_por_hora[hora] += cantidad
+                            total_capacidad_fuera_modelo += cantidad
+                    
+                    # DA = 0 (no optimizado), ENA = capacidad completa
+                    for hora in range(1, 25):
+                        fila_da[hora] = 0
+                        fila_ena[hora] = capacidades_por_hora[hora]
                 
                 da_rows.append(fila_da)
                 ena_rows.append(fila_ena)
             
-            # Determinar si la oferta fue procesada (tiene asignaciones > 0)
-            if total_asignado > 0:
-                ofertas_procesadas.append(oferta)
-                print(f"  {oferta} - Asignado: {total_asignado:.2f} kWh")
-            else:
-                print(f"  {oferta} - Sin asignaciones (precio alto o sin demanda)")
-            
-            # Generar hojas DA y ENA para TODAS las ofertas (con o sin asignaciones)
-            if da_rows:
+            # Guardar resultados
+            if da_rows and ena_rows:
                 da_df = pd.DataFrame(da_rows)
-                resultados[f"DEMANDA ASIGNADA {oferta} IT1_COMPRAR"] = da_df
-                print(f"  Hoja DA generada para {oferta}")
-            
-            if ena_rows:
                 ena_df = pd.DataFrame(ena_rows)
+                
+                resultados[f"DEMANDA ASIGNADA {oferta} IT1_COMPRAR"] = da_df
                 resultados[f"DEMANDA ASIGNADA {oferta} IT1_NO_COMPRADA"] = ena_df
-                print(f"  Hoja ENA generada para {oferta}")
+                
+                print(f"     ✅ DA: {total_asignado_pyomo:.2f} kWh asignados por Pyomo")
+                print(f"     ✅ ENA: {total_capacidad_fuera_modelo:.2f} kWh recuperados fuera modelo")
+                print(f"     📋 Total fechas procesadas: {len(todas_fechas_oferta)}")
         
         # ========================================
-        # GENERAR HOJAS PARA OFERTAS RECHAZADAS - CORREGIDO
+        # PASO 3: PROCESAR OFERTAS COMPLETAMENTE FUERA DEL MODELO
         # ========================================
         
-        print(f"\nGenerando hojas para {len(ofertas_rechazadas)} ofertas rechazadas...")
+        print(f"\n🔄 PASO 3: Procesando ofertas FUERA del modelo...")
         
-        for oferta in ofertas_rechazadas:
-            if ofertas_df is not None:
-                oferta_data = ofertas_df[ofertas_df['CÓDIGO OFERTA'] == oferta]
-                if not oferta_data.empty:
-                    print(f"  Generando hojas para {oferta} (rechazada por evaluación)")
-                    
-                    # CORRECCIÓN CRÍTICA: Deduplicar datos ANTES de procesar
-                    oferta_data_unique = oferta_data.drop_duplicates(
-                        subset=['FECHA', 'Atributo'], 
-                        keep='first'
-                    )
-                    
-                    print(f"    Datos originales: {len(oferta_data)}, Únicos: {len(oferta_data_unique)}")
-                    
-                    # DA: Todo en 0 (no se compró nada)
-                    # ENA: Capacidad completa (todo disponible) - SIN DUPLICADOS
-                    da_rows = []
-                    ena_rows = []
-                    fechas_unicas = sorted(oferta_data_unique['FECHA'].unique())
-                    
-                    for fecha in fechas_unicas:
-                        fila_da = {"FECHA": fecha, "X": fecha}
-                        fila_ena = {"FECHA": fecha, "X": fecha}
-                        
-                        # Inicializar todas las horas
-                        for hora in range(1, 25):
-                            fila_da[hora] = 0  # DA: Todo en 0
-                            fila_ena[hora] = 0  # ENA: Se llenará con datos únicos
-                        
-                        # CORRECCIÓN: Llenar ENA con datos únicos solamente
-                        data_fecha = oferta_data_unique[oferta_data_unique['FECHA'] == fecha]
-                        
-                        # Crear diccionario para evitar duplicados por hora
-                        datos_por_hora = {}
-                        for _, row in data_fecha.iterrows():
-                            hora = int(row['Atributo'])
-                            cantidad = row['CANTIDAD']
-                            if 1 <= hora <= 24:
-                                # Solo tomar el primer valor para cada hora
-                                if hora not in datos_por_hora:
-                                    datos_por_hora[hora] = cantidad
-                        
-                        # Aplicar los datos únicos
-                        for hora, cantidad in datos_por_hora.items():
-                            fila_ena[hora] = cantidad
-                        
-                        da_rows.append(fila_da)
-                        ena_rows.append(fila_ena)
-                    
-                    if da_rows and ena_rows:
-                        da_df = pd.DataFrame(da_rows)
-                        ena_df = pd.DataFrame(ena_rows)
-                        
-                        resultados[f"DEMANDA ASIGNADA {oferta} IT1_COMPRAR"] = da_df
-                        resultados[f"DEMANDA ASIGNADA {oferta} IT1_NO_COMPRADA"] = ena_df
-                        
-                        print(f"  Hojas DA y ENA generadas para {oferta} (sin duplicados)")
-                    else:
-                        print(f"  No se generaron datos para {oferta}")
+        for oferta in ofertas_fuera_modelo:
+            print(f"\n  📋 Procesando oferta rechazada: {oferta}")
+            
+            # USAR DATOS ORIGINALES COMPLETOS
+            oferta_data = ofertas_df[ofertas_df['CÓDIGO OFERTA'] == oferta]
+            
+            if oferta_data.empty:
+                print(f"     ⚠️ No hay datos para {oferta}")
+                continue
+            
+            print(f"     📊 Registros encontrados: {len(oferta_data)}")
+            
+            # Obtener TODAS las fechas de esta oferta
+            fechas_oferta = sorted(oferta_data['FECHA'].unique())
+            
+            # Crear estructura agregando por fecha-hora
+            capacidades_totales = {}
+            for fecha in fechas_oferta:
+                capacidades_totales[fecha] = {}
+                for hora in range(1, 25):
+                    capacidades_totales[fecha][hora] = 0
+            
+            # SUMAR todas las capacidades por fecha-hora
+            total_capacidad_oferta = 0
+            for _, row in oferta_data.iterrows():
+                fecha = row['FECHA']
+                hora = int(row['Atributo'])
+                cantidad = row['CANTIDAD']
+                
+                if 1 <= hora <= 24 and not pd.isna(cantidad):
+                    capacidades_totales[fecha][hora] += cantidad
+                    total_capacidad_oferta += cantidad
+            
+            print(f"     💰 Capacidad total: {total_capacidad_oferta:.2f} kWh")
+            
+            # Crear DataFrames: DA=0, ENA=capacidad completa
+            da_rows = []
+            ena_rows = []
+            
+            for fecha in fechas_oferta:
+                fila_da = {"FECHA": fecha, "X": fecha}
+                fila_ena = {"FECHA": fecha, "X": fecha}
+                
+                for hora in range(1, 25):
+                    fila_da[hora] = 0  # DA: Nada asignado
+                    fila_ena[hora] = capacidades_totales[fecha][hora]  # ENA: Todo disponible
+                
+                da_rows.append(fila_da)
+                ena_rows.append(fila_ena)
+            
+            # Guardar resultados
+            if da_rows and ena_rows:
+                da_df = pd.DataFrame(da_rows)
+                ena_df = pd.DataFrame(ena_rows)
+                
+                resultados[f"DEMANDA ASIGNADA {oferta} IT1_COMPRAR"] = da_df
+                resultados[f"DEMANDA ASIGNADA {oferta} IT1_NO_COMPRADA"] = ena_df
+                
+                print(f"     ✅ Hojas generadas - Todo va a ENA: {total_capacidad_oferta:.2f} kWh")
         
         # ========================================
-        # CALCULAR DEMANDA FALTANTE
+        # PASO 4: VERIFICACIÓN CRÍTICA DE CONSERVACIÓN
         # ========================================
         
-        print(f"\nCalculando demanda faltante...")
+        print(f"\n🔍 PASO 4: VERIFICACIÓN CRÍTICA DE CONSERVACIÓN...")
+        
+        # Calcular total original
+        total_original = ofertas_df['CANTIDAD'].sum()
+        
+        # Calcular total en resultados
+        total_da = 0
+        total_ena = 0
+        
+        for clave, df in resultados.items():
+            if "_COMPRAR" in clave:
+                # Sumar DA
+                for _, row in df.iterrows():
+                    for hora in range(1, 25):
+                        if hora in row and pd.notna(row[hora]):
+                            total_da += row[hora]
+            
+            elif "_NO_COMPRADA" in clave:
+                # Sumar ENA
+                for _, row in df.iterrows():
+                    for hora in range(1, 25):
+                        if hora in row and pd.notna(row[hora]):
+                            total_ena += row[hora]
+        
+        total_resultados = total_da + total_ena
+        diferencia = abs(total_original - total_resultados)
+        
+        print(f"📊 VERIFICACIÓN FINAL DE CONSERVACIÓN:")
+        print(f"   💾 Total original (CANTIDADES Y PRECIOS): {total_original:,.2f} kWh")
+        print(f"   ⚡ Total DA (asignado): {total_da:,.2f} kWh")
+        print(f"   🔋 Total ENA (no asignado): {total_ena:,.2f} kWh")
+        print(f"   🧮 Total en resultados (DA + ENA): {total_resultados:,.2f} kWh")
+        print(f"   📏 Diferencia: {diferencia:,.2f} kWh")
+        
+        if diferencia < 1:  # Tolerancia de 1 kWh por redondeos
+            print(f"   ✅ CONSERVACIÓN PERFECTA - Energía preservada al 100%")
+        else:
+            porcentaje_perdida = (diferencia / total_original) * 100
+            print(f"   ⚠️ PÉRDIDA DETECTADA: {porcentaje_perdida:.4f}% del total")
+            
+            # Mostrar desglose por oferta para debug
+            print(f"\n   🔍 DESGLOSE POR OFERTA:")
+            for oferta in todas_las_ofertas_originales:
+                oferta_original = ofertas_df[ofertas_df['CÓDIGO OFERTA'] == oferta]['CANTIDAD'].sum()
+                
+                # Buscar en resultados
+                total_oferta_resultados = 0
+                key_da = f"DEMANDA ASIGNADA {oferta} IT1_COMPRAR"
+                key_ena = f"DEMANDA ASIGNADA {oferta} IT1_NO_COMPRADA"
+                
+                for key in [key_da, key_ena]:
+                    if key in resultados:
+                        df_oferta = resultados[key]
+                        for _, row in df_oferta.iterrows():
+                            for hora in range(1, 25):
+                                if hora in row and pd.notna(row[hora]):
+                                    total_oferta_resultados += row[hora]
+                
+                diff_oferta = abs(oferta_original - total_oferta_resultados)
+                if diff_oferta > 1:
+                    print(f"     🚨 {oferta}: Original {oferta_original:,.0f} vs Resultado {total_oferta_resultados:,.0f} kWh (diff: {diff_oferta:,.0f})")
+                else:
+                    print(f"     ✅ {oferta}: Conservación correcta ({oferta_original:,.0f} kWh)")
+        
+        # ========================================
+        # PASO 5: GENERAR DEMANDA FALTANTE Y RESUMEN
+        # ========================================
+        
+        print(f"\n🔄 PASO 5: Generando demanda faltante y resumen...")
+        
+        # Calcular demanda faltante (solo para fechas del modelo)
         demanda_faltante = []
-        
-        for fecha in todas_fechas:
+        for fecha in fechas_modelo_pyomo:
             fila = {"FECHA": fecha, "X": fecha}
             
             for hora in range(1, 25):
                 # Demanda total
                 demanda_total = pyo.value(model.D[fecha, hora]) if (fecha, hora) in model.D else 0
                 
-                # Energía asignada total
+                # Energía asignada total (solo de ofertas en modelo)
                 energia_asignada = 0
-                for oferta in ofertas_validas:
+                for oferta in ofertas_en_modelo_pyomo:
                     if (oferta, fecha, hora) in model.EA:
                         energia_asignada += pyo.value(model.EA[oferta, fecha, hora])
                 
@@ -489,18 +604,20 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
         if demanda_faltante:
             df_faltante = pd.DataFrame(demanda_faltante)
             resultados["DEMANDA_FALTANTE"] = df_faltante
-            print(f"Demanda faltante calculada")
+            print(f"   ✅ Demanda faltante calculada")
         
-        # ========================================
-        # GENERAR RESUMEN EJECUTIVO
-        # ========================================
-        
-        print(f"\nGenerando resumen ejecutivo...")
+        # Generar resumen ejecutivo usando TODAS las ofertas
+        print(f"   🔄 Generando resumen ejecutivo...")
         resumen_ejecutivo_rows = []
         
-        # Agrupar fechas por mes
+        # Agrupar fechas por mes (usar todas las fechas disponibles)
+        todas_fechas_resultados = set()
+        for clave, df in resultados.items():
+            if "_COMPRAR" in clave and not df.empty:
+                todas_fechas_resultados.update(df['FECHA'].unique())
+        
         fechas_por_mes = {}
-        for fecha in todas_fechas:
+        for fecha in sorted(todas_fechas_resultados):
             key = (fecha.year, fecha.month)
             display_key = f"{fecha.month:02d}/{fecha.year}"
             
@@ -513,18 +630,19 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
         
         # Calcular demanda no asignada por mes
         demanda_no_asignada_por_mes = {}
-        demanda_faltante_df = pd.DataFrame(demanda_faltante)
-        
-        for _, row in demanda_faltante_df.iterrows():
-            fecha = row["FECHA"]
-            key = (fecha.year, fecha.month)
+        if demanda_faltante:
+            demanda_faltante_df = pd.DataFrame(demanda_faltante)
             
-            if key not in demanda_no_asignada_por_mes:
-                demanda_no_asignada_por_mes[key] = 0
-            
-            for hora in range(1, 25):
-                if hora in row and not pd.isna(row[hora]):
-                    demanda_no_asignada_por_mes[key] += row[hora]
+            for _, row in demanda_faltante_df.iterrows():
+                fecha = row["FECHA"]
+                key = (fecha.year, fecha.month)
+                
+                if key not in demanda_no_asignada_por_mes:
+                    demanda_no_asignada_por_mes[key] = 0
+                
+                for hora in range(1, 25):
+                    if hora in row and not pd.isna(row[hora]):
+                        demanda_no_asignada_por_mes[key] += row[hora]
         
         # Generar resumen por mes
         for key in sorted(fechas_por_mes.keys()):
@@ -535,7 +653,7 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
             row_resumen = {"FECHA": display_key}
             
             # Procesar TODAS las ofertas
-            for oferta in todas_las_ofertas:
+            for oferta in todas_las_ofertas_originales:
                 total_energia = 0
                 total_costo_indexado = 0
                 total_costo_sin_indexar = 0
@@ -551,29 +669,29 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
                             for hora in range(1, 25):
                                 energia_asignada = fecha_rows.iloc[0].get(hora, 0)
                                 if energia_asignada > 0:
-                                    # Buscar precio en el modelo o en ofertas_df
+                                    # Buscar precio en datos originales
                                     precio_indexado = 0
                                     precio_sin_indexar = 0
                                     
-                                    if oferta in ofertas_validas and (oferta, fecha, hora) in model.OFH:
+                                    # Para ofertas en modelo, usar precio del modelo si disponible
+                                    if oferta in ofertas_en_modelo_pyomo and (oferta, fecha, hora) in model.OFH:
                                         precio_indexado = pyo.value(model.PO[oferta, fecha, hora])
                                         precio_sin_indexar = precio_indexado
+                                    
+                                    # Buscar precio original en ofertas_df
+                                    try:
+                                        ofertas_filtradas = ofertas_df[
+                                            (ofertas_df['CÓDIGO OFERTA'] == oferta) & 
+                                            (ofertas_df['FECHA'] == fecha) & 
+                                            (ofertas_df['Atributo'] == hora)
+                                        ]
                                         
-                                        # Buscar precio original en ofertas_df
-                                        if ofertas_df is not None:
-                                            try:
-                                                ofertas_filtradas = ofertas_df[
-                                                    (ofertas_df['CÓDIGO OFERTA'] == oferta) & 
-                                                    (ofertas_df['FECHA'] == fecha) & 
-                                                    (ofertas_df['Atributo'] == hora)
-                                                ]
-                                                
-                                                if not ofertas_filtradas.empty and 'PRECIO' in ofertas_filtradas.columns:
-                                                    precio_original = ofertas_filtradas.iloc[0]['PRECIO']
-                                                    if not pd.isna(precio_original):
-                                                        precio_sin_indexar = precio_original
-                                            except Exception as e:
-                                                logger.warning(f"Error al buscar precio sin indexar: {e}")
+                                        if not ofertas_filtradas.empty and 'PRECIO' in ofertas_filtradas.columns:
+                                            precio_original = ofertas_filtradas['PRECIO'].mean()
+                                            if not pd.isna(precio_original):
+                                                precio_sin_indexar = precio_original
+                                    except Exception as e:
+                                        logger.warning(f"Error al buscar precio sin indexar: {e}")
                                     
                                     total_energia += energia_asignada
                                     total_costo_indexado += energia_asignada * precio_indexado
@@ -596,34 +714,31 @@ def extraer_resultados(model, ofertas_df=None, log_detallado=False):
         if resumen_ejecutivo_rows:
             resumen_df = pd.DataFrame(resumen_ejecutivo_rows)
             resultados["RESUMEN EJECUTIVO"] = resumen_df
-            print(f"Resumen ejecutivo generado")
+            print(f"   ✅ Resumen ejecutivo generado")
         
         # ========================================
-        # ESTADÍSTICAS FINALES
+        # PASO 6: ESTADÍSTICAS FINALES
         # ========================================
         
         total_demanda = sum(pyo.value(model.D[a, h]) for a in model.A for h in model.H)
-        total_asignado = sum(pyo.value(model.EA[oferta, fecha, hora]) 
-                           for oferta in ofertas_validas 
-                           for fecha in model.A 
-                           for hora in model.H 
-                           if (oferta, fecha, hora) in model.EA)
-        total_deficit = sum(row.get(hora, 0) for row in demanda_faltante for hora in range(1, 25))
+        total_asignado_pyomo = sum(pyo.value(model.EA[oferta, fecha, hora]) 
+                                  for oferta in ofertas_en_modelo_pyomo 
+                                  for fecha in model.A 
+                                  for hora in model.H 
+                                  if (oferta, fecha, hora) in model.EA)
         
         logger.info(f"Demanda total: {total_demanda:.2f} kWh")
-        logger.info(f"Energía asignada total: {total_asignado:.2f} kWh")
-        logger.info(f"Déficit total: {total_deficit:.2f} kWh")
+        logger.info(f"Energía asignada por Pyomo: {total_asignado_pyomo:.2f} kWh")
         
-        if total_demanda > 0:
-            porcentaje_cubierto = (total_asignado / total_demanda) * 100
-            logger.info(f"Porcentaje cubierto: {porcentaje_cubierto:.2f}%")
-        
-        print(f"\nRESUMEN FINAL:")
-        print(f"   Total ofertas procesadas: {len(todas_las_ofertas)}")
-        print(f"   Hojas DA/ENA generadas: {len([k for k in resultados.keys() if 'DEMANDA ASIGNADA' in k])}")
+        print(f"\n📋 RESUMEN FINAL COMPLETO:")
+        print(f"   🎯 Total ofertas procesadas: {len(todas_las_ofertas_originales)}")
+        print(f"   ⚡ Ofertas en modelo Pyomo: {len(ofertas_en_modelo_pyomo)}")
+        print(f"   🚫 Ofertas fuera modelo: {len(ofertas_fuera_modelo)}")
+        print(f"   📊 Hojas DA/ENA generadas: {len([k for k in resultados.keys() if 'DEMANDA ASIGNADA' in k])}")
+        print(f"   ✅ Conservación de energía: {'PERFECTA' if diferencia < 1 else f'PÉRDIDA {diferencia:,.0f} kWh'}")
         
     except Exception as e:
-        print(f"ERROR GENERAL en extraer_resultados: {e}")
+        print(f"🚨 ERROR GENERAL en extraer_resultados: {e}")
         import traceback
         traceback.print_exc()
         return {}

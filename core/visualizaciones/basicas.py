@@ -22,8 +22,7 @@ logger = logging.getLogger(__name__)
 def crear_grafica_principal_energia_asignada(resultados_dict, ofertas_df=None):
     """
     Crea la gráfica principal de ENERGÍA ASIGNADA Y NO ASIGNADA por horas.
-    CORREGIDO: Solo cambia etiqueta a GW-TOTAL, mantiene cálculos originales
-    MEJORADO: Incluye ofertas no participantes en "GW No Asignado"
+    VERSIÓN CORREGIDA: Elimina duplicación en cálculo de energía no asignada.
     """
     logger.info("Creando gráfica principal de energía asignada y no asignada")
     
@@ -33,6 +32,7 @@ def crear_grafica_principal_energia_asignada(resultados_dict, ofertas_df=None):
         gwh_asignados = [0] * 24
         gwh_no_asignados = [0] * 24
         
+        # CORRECCIÓN: Solo usar hojas de resultados_dict, NO sumar ofertas_df adicional
         # Procesar todas las hojas de resultados
         for clave, df in resultados_dict.items():
             if not isinstance(df, pd.DataFrame) or df.empty:
@@ -42,7 +42,7 @@ def crear_grafica_principal_energia_asignada(resultados_dict, ofertas_df=None):
             es_demanda_asignada = "DEMANDA ASIGNADA" in clave and "_COMPRAR" in clave
             es_energia_no_asignada = "DEMANDA ASIGNADA" in clave and "_NO_COMPRADA" in clave
             
-            # Usar SOLO _COMPRAR y _NO_COMPRADA (como hace el cliente)
+            # Usar SOLO _COMPRAR y _NO_COMPRADA
             if es_demanda_asignada or es_energia_no_asignada:
                 # Procesar cada fila del DataFrame
                 for _, row in df.iterrows():
@@ -50,7 +50,6 @@ def crear_grafica_principal_energia_asignada(resultados_dict, ofertas_df=None):
                     for hora in range(1, 25):
                         if hora in row and pd.notna(row[hora]):
                             valor_kwh = float(row[hora])
-                            # MANTENER CÁLCULO ORIGINAL (convert_to_gwh)
                             valor_gwh = convert_to_gwh(valor_kwh)
                             
                             if es_demanda_asignada:
@@ -58,44 +57,16 @@ def crear_grafica_principal_energia_asignada(resultados_dict, ofertas_df=None):
                             elif es_energia_no_asignada:
                                 gwh_no_asignados[hora-1] += valor_gwh
 
-        # NUEVO: Sumar ofertas no participantes a "GW No Asignado"
-        if ofertas_df is not None and not ofertas_df.empty:
-            # Identificar ofertas que participaron en Pyomo
-            ofertas_participantes = set()
-            for clave in resultados_dict.keys():
-                if "_COMPRAR" in clave or "_NO_COMPRADA" in clave:
-                    if "DEMANDA ASIGNADA" in clave:
-                        partes = clave.split()
-                        for i, parte in enumerate(partes):
-                            if parte in ["IT1_COMPRAR", "IT2_COMPRAR", "IT1_NO_COMPRADA", "IT2_NO_COMPRADA"]:
-                                if i > 2:
-                                    nombre_oferta = " ".join(partes[2:i])
-                                    ofertas_participantes.add(nombre_oferta)
-                                break
-            
-            todas_las_ofertas = set(ofertas_df['CÓDIGO OFERTA'].unique())
-            ofertas_no_participantes = todas_las_ofertas - ofertas_participantes
-            
-            logger.info(f"Ofertas participantes: {len(ofertas_participantes)}")
-            logger.info(f"Ofertas NO participantes: {len(ofertas_no_participantes)}")
-            
-            # Sumar energía de ofertas no participantes a gwh_no_asignados
-            for _, row in ofertas_df.iterrows():
-                oferta = row['CÓDIGO OFERTA']
-                if oferta in ofertas_no_participantes:
-                    hora = row['Atributo']
-                    cantidad = row.get('CANTIDAD', 0)
-                    
-                    if pd.notna(cantidad) and cantidad > 0 and 1 <= hora <= 24:
-                        valor_gwh = convert_to_gwh(cantidad)
-                        gwh_no_asignados[hora-1] += valor_gwh
+        # ELIMINAR la sección problemática que duplicaba:
+        # if ofertas_df is not None and not ofertas_df.empty:
+        #     # Esta lógica causaba DUPLICACIÓN
         
-        # Logs para verificar que los valores son correctos
-        logger.info(f"GWh Asignados hora 1: {gwh_asignados[0]:.2f}")
-        logger.info(f"GWh No Asignados hora 1: {gwh_no_asignados[0]:.2f}")
-        logger.info(f"Total hora 1: {gwh_asignados[0] + gwh_no_asignados[0]:.2f}")
+        # Verificar que tenemos datos
+        if all(x == 0 for x in gwh_asignados) and all(x == 0 for x in gwh_no_asignados):
+            logger.warning("No se encontraron datos de energía en los resultados")
+            return None
         
-        # Calcular porcentajes
+        # Calcular porcentajes de energía no asignada
         porcentajes_no_asignado = []
         for i in range(24):
             total = gwh_asignados[i] + gwh_no_asignados[i]
@@ -105,7 +76,11 @@ def crear_grafica_principal_energia_asignada(resultados_dict, ofertas_df=None):
                 porcentaje = 0
             porcentajes_no_asignado.append(porcentaje)
         
-        # Log del porcentaje para verificar
+        # Log de verificación
+        total_asignado = sum(gwh_asignados)
+        total_no_asignado = sum(gwh_no_asignados)
+        logger.info(f"Total asignado: {total_asignado:.2f} GWh")
+        logger.info(f"Total no asignado: {total_no_asignado:.2f} GWh")
         logger.info(f"% No Asignado hora 1: {porcentajes_no_asignado[0]:.2f}%")
         
         # Crear la figura con subplots para eje secundario
@@ -119,7 +94,7 @@ def crear_grafica_principal_energia_asignada(resultados_dict, ofertas_df=None):
             go.Bar(
                 x=horas,
                 y=gwh_asignados,
-                name="GW Asignados",  # Solo cambio de nombre para consistencia
+                name="GW Asignados",
                 marker_color="#1f4e79",  # Azul oscuro
                 text=[f"{val:.2f}" for val in gwh_asignados],
                 textposition="inside",
@@ -134,8 +109,8 @@ def crear_grafica_principal_energia_asignada(resultados_dict, ofertas_df=None):
             go.Bar(
                 x=horas,
                 y=gwh_no_asignados,
-                name="GW No Asignado",  # Solo cambio de nombre para consistencia
-                marker_color="#87CEEB",  # Azul claro como cliente
+                name="GW No Asignado",
+                marker_color="#87CEEB",  # Azul claro
                 text=[f"{val:.2f}" for val in gwh_no_asignados],
                 textposition="inside",
                 textfont=dict(color="black", size=10),
@@ -144,7 +119,7 @@ def crear_grafica_principal_energia_asignada(resultados_dict, ofertas_df=None):
             secondary_y=False
         )
         
-        # Agregar línea de porcentaje no asignado (CON CURVATURA)
+        # Agregar línea de porcentaje no asignado
         fig.add_trace(
             go.Scatter(
                 x=horas,
@@ -152,54 +127,35 @@ def crear_grafica_principal_energia_asignada(resultados_dict, ofertas_df=None):
                 mode="lines+markers",
                 name="% No Asignado",
                 line=dict(
-                    color="#2ecc71", 
+                    color="#2ecc71",  # Verde
                     width=3,
-                    shape='spline',     # ← Línea curva
-                    smoothing=0.8       # ← Suavizado
+                    shape="spline"  # Curva suave
                 ),
                 marker=dict(
+                    color="#27ae60",
                     size=8,
-                    color="#2ecc71",
                     line=dict(color="white", width=2)
                 ),
-                text=[f"{val:.2f}%" for val in porcentajes_no_asignado],
-                textposition="top center",
-                textfont=dict(color="#2ecc71", size=11, family="Arial Black"),
                 showlegend=True
             ),
             secondary_y=True
         )
         
-        # SOLO CAMBIO DE ETIQUETA: Configurar eje Y principal
+        # Configurar ejes Y
         fig.update_yaxes(
-            title_text="GW-TOTAL",  # ÚNICO CAMBIO: Era "GWh", ahora "GW-TOTAL"
+            title_text="GW-TOTAL",
             title_font=dict(size=14, color="#1f4e79"),
             tickfont=dict(size=12),
+            secondary_y=False,
             showgrid=True,
-            gridcolor="lightgray",
-            secondary_y=False
+            gridcolor="lightgray"
         )
-        
-        # Configurar eje Y secundario (%) - RANGO AJUSTADO
-        porcentaje_min = min(porcentajes_no_asignado) if porcentajes_no_asignado else 0
-        porcentaje_max = max(porcentajes_no_asignado) if porcentajes_no_asignado else 0
-        rango_porcentaje = porcentaje_max - porcentaje_min
-        if rango_porcentaje < 1:
-            centro = (porcentaje_max + porcentaje_min) / 2
-            expansion = max(1, rango_porcentaje * 3)
-            porcentaje_min_visual = centro - expansion/2
-            porcentaje_max_visual = centro + expansion/2
-        else:
-            porcentaje_min_visual = porcentaje_min * 0.95
-            porcentaje_max_visual = porcentaje_max * 1.05
         
         fig.update_yaxes(
             title_text="% No Asignado",
             title_font=dict(size=14, color="#2ecc71"),
-            tickfont=dict(size=12),
-            ticksuffix="%",
-            showgrid=False,
-            range=[porcentaje_min_visual, porcentaje_max_visual],
+            tickfont=dict(size=12, color="#2ecc71"),
+            range=[0, max(100, max(porcentajes_no_asignado) * 1.1)],
             secondary_y=True
         )
         
@@ -252,13 +208,13 @@ def crear_grafica_principal_energia_asignada(resultados_dict, ofertas_df=None):
             borderwidth=1
         )
         
-        logger.info("Gráfica principal creada exitosamente con etiqueta GW-TOTAL")
+        logger.info("Gráfica principal creada exitosamente - SIN duplicación")
         return fig
         
     except Exception as e:
         logger.error(f"Error al crear la gráfica principal: {e}")
         raise
-    
+      
 def crear_grafica_energia_por_anos(resultados_dict, ofertas_df=None):
     """
     Crea la gráfica de ENERGÍA ASIGNADA Y NO ASIGNADA agrupada por AÑOS.
