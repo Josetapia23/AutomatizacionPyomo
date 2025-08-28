@@ -4,6 +4,7 @@ Incluye visualizaciones específicas que muestran cantidad asignada/no asignada 
 ACTUALIZADO: Incluye gráfica consolidada de todas las ofertas.
 """
 
+import os
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -473,162 +474,180 @@ def crear_grafica_oferta_no_participante(nombre_oferta, datos_originales):
 
 def extraer_datos_oferta_original(nombre_oferta, resultados_dict):
     """
-    Extrae datos de ofertas no participantes con PRECIOS CORREGIDOS.
-    SOLUCION: Busca precios directamente en CANTIDADES Y PRECIOS por CÓDIGO OFERTA.
+    FUNCIÓN CORREGIDA: Lee datos originales desde resultado_ofertas.xlsx
+    Para ofertas no participantes, accede directamente al archivo de ofertas procesadas.
+    
+    Args:
+        nombre_oferta (str): Nombre de la oferta
+        resultados_dict (dict): Diccionario con resultados (para compatibilidad)
+        
+    Returns:
+        dict: Datos originales con capacidad_total y precios reales
     """
-    logger.info(f"Extrayendo datos corregidos para oferta no participante: {nombre_oferta}")
+    logger.info(f"🔍 Extrayendo datos ORIGINALES para: {nombre_oferta}")
     
-    # 1. Buscar capacidad no asignada en hojas ENA
-    capacidades_por_fecha = {}
+    # 1. IMPORTAR LA RUTA CORRECTA DEL ARCHIVO
+    try:
+        from config import RESULTADO_OFERTAS
+        archivo_ofertas = RESULTADO_OFERTAS
+        print(f"  📁 Usando archivo: {archivo_ofertas}")
+    except ImportError:
+        # Fallback si no se puede importar
+        archivo_ofertas = "output/resultado_ofertas.xlsx"
+        print(f"  📁 Usando fallback: {archivo_ofertas}")
     
-    # Buscar hoja ENA con búsqueda flexible
-    clave_ena = None
-    claves_posibles = [
-        f"DEMANDA ASIGNADA {nombre_oferta} IT1_NO_COMPRADA",
-        f"DEMANDA ASIGNADA {nombre_oferta}_NO_COMPRADA",
-        f"{nombre_oferta}_NO_COMPRADA"
-    ]
+    # 2. VERIFICAR QUE EL ARCHIVO EXISTE
+    if not os.path.exists(archivo_ofertas):
+        print(f"  ❌ No se encontró el archivo: {archivo_ofertas}")
+        return None
     
-    for clave in claves_posibles:
-        if clave in resultados_dict:
-            clave_ena = clave
-            break
+    # 3. LEER LA HOJA "CANTIDADES Y PRECIOS"
+    try:
+        import pandas as pd
+        cantidades_df = pd.read_excel(archivo_ofertas, sheet_name="CANTIDADES Y PRECIOS")
+        print(f"  ✅ Hoja leída exitosamente: {len(cantidades_df)} registros")
+    except Exception as e:
+        print(f"  ❌ Error leyendo hoja CANTIDADES Y PRECIOS: {e}")
+        return None
     
-    # Buscar cualquier clave que contenga el nombre de la oferta y NO_COMPRADA
-    if not clave_ena:
-        for clave in resultados_dict.keys():
-            if nombre_oferta in clave and "NO_COMPRADA" in clave:
-                clave_ena = clave
+    if cantidades_df.empty:
+        print(f"  ❌ La hoja CANTIDADES Y PRECIOS está vacía")
+        return None
+    
+    # 4. DEBUG: MOSTRAR COLUMNAS Y OFERTAS DISPONIBLES
+    print(f"  🔍 Columnas en la hoja: {list(cantidades_df.columns)}")
+    
+    if 'CÓDIGO OFERTA' in cantidades_df.columns:
+        ofertas_unicas = cantidades_df['CÓDIGO OFERTA'].unique()
+        print(f"  🔍 Ofertas encontradas ({len(ofertas_unicas)}): {list(ofertas_unicas)}")
+    else:
+        print(f"  ❌ No se encontró columna 'CÓDIGO OFERTA'")
+        return None
+    
+    # 5. FILTRAR DATOS DE ESTA OFERTA ESPECÍFICA
+    ofertas_filtradas = cantidades_df[cantidades_df['CÓDIGO OFERTA'] == nombre_oferta]
+    
+    if ofertas_filtradas.empty:
+        # Intentar búsqueda más flexible por coincidencia parcial
+        print(f"  🔍 Buscando coincidencias similares para '{nombre_oferta}'...")
+        for codigo_oferta in cantidades_df['CÓDIGO OFERTA'].unique():
+            if (nombre_oferta.upper() in codigo_oferta.upper() or 
+                codigo_oferta.upper() in nombre_oferta.upper()):
+                ofertas_filtradas = cantidades_df[cantidades_df['CÓDIGO OFERTA'] == codigo_oferta]
+                print(f"  ✅ Usando código similar: '{codigo_oferta}' para '{nombre_oferta}'")
                 break
     
-    if clave_ena and not resultados_dict[clave_ena].empty:
-        ena_df = resultados_dict[clave_ena]
-        for _, row in ena_df.iterrows():
-            fecha = row['FECHA']
-            capacidad_diaria = 0
-            
-            # Sumar capacidad de todas las horas
-            for hora in range(1, 25):
-                if hora in row and pd.notna(row[hora]) and row[hora] > 0:
-                    capacidad_diaria += row[hora]
-            
-            if capacidad_diaria > 0:
-                capacidades_por_fecha[fecha] = capacidad_diaria
+    if ofertas_filtradas.empty:
+        print(f"  ❌ No se encontraron registros para '{nombre_oferta}'")
+        return None
     
-    # 2. CORREGIDO: Extraer precios con FALLBACK
+    print(f"  ✅ Encontrados {len(ofertas_filtradas)} registros para la oferta")
+    
+    # 6. PROCESAR DATOS POR FECHA Y SUMAR CANTIDADES REALES
+    capacidades_por_fecha = {}
     precios_por_fecha = {}
     
-    # INTENTO 1: Buscar en CANTIDADES Y PRECIOS
-    cantidades_encontradas = False
-    for clave in resultados_dict.keys():
-        if "CANTIDADES" in clave.upper() and "PRECIOS" in clave.upper():
-            cantidades_df = resultados_dict[clave]
-            ofertas_filtradas = cantidades_df[cantidades_df['CÓDIGO OFERTA'] == nombre_oferta]
-            
-            print(f"  🔍 Encontrada hoja: {clave}")
-            print(f"  📊 Registros para {nombre_oferta}: {len(ofertas_filtradas)}")
-            
-            if not ofertas_filtradas.empty:
-                for fecha in ofertas_filtradas['FECHA'].unique():
-                    fecha_data = ofertas_filtradas[ofertas_filtradas['FECHA'] == fecha]
-                    precio_indexado_prom = fecha_data['PRECIO INDEXADO'].mean() if 'PRECIO INDEXADO' in fecha_data.columns else 0
-                    precio_sin_indexar_prom = fecha_data['PRECIO'].mean() if 'PRECIO' in fecha_data.columns else 0
-                    
-                    precios_por_fecha[fecha] = {
-                        'indexado': precio_indexado_prom,
-                        'sin_indexar': precio_sin_indexar_prom
-                    }
-                cantidades_encontradas = True
-                break
+    print(f"  📊 Procesando datos por fecha...")
     
-    # FALLBACK: Usar RESUMEN EJECUTIVO
-    if not cantidades_encontradas and "RESUMEN EJECUTIVO" in resultados_dict:
-        print("  🔄 Fallback: Extrayendo precios del RESUMEN EJECUTIVO")
-        resumen_df = resultados_dict["RESUMEN EJECUTIVO"]
+    for fecha in ofertas_filtradas['FECHA'].unique():
+        fecha_data = ofertas_filtradas[ofertas_filtradas['FECHA'] == fecha]
         
-        col_precio_indexado = f"{nombre_oferta} PRECIO INDEXADO ($/KWh)"
-        col_precio_sin_indexar = f"{nombre_oferta} PRECIO ($/KWh)"
+        # SUMAR TODA LA CAPACIDAD ORIGINAL de esta fecha (todas las horas)
+        capacidad_total = 0
+        if 'CANTIDAD' in fecha_data.columns:
+            capacidad_total = fecha_data['CANTIDAD'].sum()
         
-        if col_precio_indexado in resumen_df.columns or col_precio_sin_indexar in resumen_df.columns:
-            for _, row in resumen_df.iterrows():
-                fecha = row['FECHA']
-                precio_indexado = row[col_precio_indexado] if col_precio_indexado in resumen_df.columns and pd.notna(row[col_precio_indexado]) else 0
-                precio_sin_indexar = row[col_precio_sin_indexar] if col_precio_sin_indexar in resumen_df.columns and pd.notna(row[col_precio_sin_indexar]) else 0
-                
-                # CORREGIDO: Incluir fechas aunque precios sean 0, pero asignar precios típicos para no participantes
-                if fecha:  # Solo verificar que hay fecha
-                    # Para no participantes, usar precios base típicos si están en 0
-                    if precio_indexado == 0 and precio_sin_indexar == 0:
-                        # Asignar precios base típicos basados en el nombre de la oferta
-                        if "BTG" in nombre_oferta:
-                            precio_sin_indexar = 350.0  # Precio típico BTG
-                            precio_indexado = 350.0
-                        elif "GENERSA" in nombre_oferta:
-                            precio_sin_indexar = 370.0
-                            precio_indexado = 370.0
-                        elif "NITROENERGY" in nombre_oferta:
-                            precio_sin_indexar = 400.0
-                            precio_indexado = 400.0
-                        else:
-                            precio_sin_indexar = 300.0  # Precio por defecto
-                            precio_indexado = 300.0
-                    
-                    precios_por_fecha[fecha] = {
-                        'indexado': precio_indexado,
-                        'sin_indexar': precio_sin_indexar
-                    }
-            print(f"  ✅ Precios extraídos del resumen: {len(precios_por_fecha)} fechas")
-        else:
-            print(f"  ⚠️ No se encontraron columnas de precios para {nombre_oferta} en resumen")
+        # CALCULAR PRECIOS PROMEDIO
+        precio_indexado = 0
+        precio_sin_indexar = 0
+        
+        if 'PRECIO INDEXADO' in fecha_data.columns:
+            precio_indexado = fecha_data['PRECIO INDEXADO'].mean()
+        if 'PRECIO' in fecha_data.columns:
+            precio_sin_indexar = fecha_data['PRECIO'].mean()
+        
+        # Almacenar datos solo si hay capacidad
+        if capacidad_total > 0:
+            capacidades_por_fecha[fecha] = capacidad_total
+            precios_por_fecha[fecha] = {
+                'indexado': precio_indexado,
+                'sin_indexar': precio_sin_indexar
+            }
+            print(f"     - {fecha}: {capacidad_total:,.0f} kWh")
     
-    if not precios_por_fecha:
-        print("  ❌ No se encontraron precios en ninguna fuente")
+    print(f"  📊 Fechas con capacidad: {len(capacidades_por_fecha)}")
     
-    # 3. Combinar datos de capacidad y precios - SOLO FECHAS CON CAPACIDAD
-    datos = {
+    # 7. FORMATEAR DATOS PARA COMPATIBILIDAD CON GRÁFICAS (MES/AÑO)
+    datos_finales = {
         'fechas': [],
         'capacidad_total': [],
         'precio_indexado': [],
         'precio_sin_indexar': []
     }
     
-    # CORREGIDO: Solo procesar fechas que tienen capacidad real > 0
-    fechas_con_capacidad = set()
-    
-    # Identificar fechas con capacidad real
+    # Convertir fechas a formato mes/año y agrupar
+    fechas_mes_ano = {}
     for fecha, capacidad in capacidades_por_fecha.items():
-        if capacidad > 0:
-            fecha_str = fecha.strftime('%m/%Y') if hasattr(fecha, 'strftime') else str(fecha)
-            fechas_con_capacidad.add(fecha_str)
+        try:
+            # Convertir fecha a formato estándar
+            if isinstance(fecha, str):
+                fecha_dt = pd.to_datetime(fecha).date()
+            elif hasattr(fecha, 'date'):
+                fecha_dt = fecha.date()
+            else:
+                fecha_dt = fecha
+            
+            fecha_str = fecha_dt.strftime('%m/%Y')
+            
+            # Agrupar por mes/año
+            if fecha_str not in fechas_mes_ano:
+                fechas_mes_ano[fecha_str] = {
+                    'capacidad': 0,
+                    'precios_indexados': [],
+                    'precios_sin_indexar': []
+                }
+            
+            fechas_mes_ano[fecha_str]['capacidad'] += capacidad
+            
+            # Agregar precios si existen
+            if fecha in precios_por_fecha:
+                fechas_mes_ano[fecha_str]['precios_indexados'].append(precios_por_fecha[fecha]['indexado'])
+                fechas_mes_ano[fecha_str]['precios_sin_indexar'].append(precios_por_fecha[fecha]['sin_indexar'])
+                
+        except Exception as e:
+            print(f"  ⚠️ Error procesando fecha {fecha}: {e}")
+            continue
     
-    # Procesar solo fechas con capacidad
-    for fecha_str in sorted(fechas_con_capacidad):
-        # Buscar capacidad
-        capacidad = 0
-        for fecha_orig, cap in capacidades_por_fecha.items():
-            fecha_orig_str = fecha_orig.strftime('%m/%Y') if hasattr(fecha_orig, 'strftime') else str(fecha_orig)
-            if fecha_orig_str == fecha_str:
-                capacidad = cap
-                break
+    # 8. CONSTRUIR RESULTADO FINAL
+    for fecha_str in sorted(fechas_mes_ano.keys()):
+        datos = fechas_mes_ano[fecha_str]
         
-        # Buscar precios para esta fecha específica
-        precios = {'indexado': 0, 'sin_indexar': 0}
-        for fecha_orig, prec in precios_por_fecha.items():
-            fecha_orig_str = fecha_orig.strftime('%m/%Y') if hasattr(fecha_orig, 'strftime') else str(fecha_orig)
-            if fecha_orig_str == fecha_str:
-                precios = prec
-                break
+        # Calcular precios promedio del período
+        precio_indexado = (sum(datos['precios_indexados']) / len(datos['precios_indexados']) 
+                          if datos['precios_indexados'] else 0)
+        precio_sin_indexar = (sum(datos['precios_sin_indexar']) / len(datos['precios_sin_indexar']) 
+                             if datos['precios_sin_indexar'] else 0)
         
-        # Solo incluir si tiene capacidad real
-        if capacidad > 0:
-            datos['fechas'].append(fecha_str)
-            datos['capacidad_total'].append(capacidad)
-            datos['precio_indexado'].append(precios['indexado'])
-            datos['precio_sin_indexar'].append(precios['sin_indexar'])
+        datos_finales['fechas'].append(fecha_str)
+        datos_finales['capacidad_total'].append(datos['capacidad'])
+        datos_finales['precio_indexado'].append(precio_indexado)
+        datos_finales['precio_sin_indexar'].append(precio_sin_indexar)
     
-    print(f"  ✅ Datos finales: {len(datos['fechas'])} períodos")
+    if not datos_finales['fechas']:
+        print(f"  ❌ No se pudieron procesar datos finales")
+        return None
     
-    return datos if datos['fechas'] else None
+    # 9. MOSTRAR RESULTADOS FINALES PARA VERIFICACIÓN
+    total_capacidad = sum(datos_finales['capacidad_total'])
+    precio_promedio = sum(datos_finales['precio_indexado']) / len(datos_finales['precio_indexado']) if datos_finales['precio_indexado'] else 0
+    
+    print(f"  ✅ RESULTADOS FINALES PARA '{nombre_oferta}':")
+    print(f"     - Períodos procesados: {len(datos_finales['fechas'])}")
+    print(f"     - Capacidad total: {total_capacidad:,.0f} kWh")
+    print(f"     - Precio indexado promedio: ${precio_promedio:.2f}")
+    print(f"     - Primer período: {datos_finales['fechas'][0]} = {datos_finales['capacidad_total'][0]:,.0f} kWh")
+    
+    return datos_finales
 
 def crear_graficas_por_oferta(resultados_dict, output_dir):
     """
