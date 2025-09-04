@@ -1036,7 +1036,7 @@ def generar_reporte_consolidado_ofertas(graficas_creadas, output_dir, resultados
     <body>
         <div class="header">
             <h1>📊 REPORTE COMPLETO DE OFERTAS</h1>
-            <h2>Sistema de Optimización Energética Pyomo</h2>
+            <h2>Sistema de Optimización Energética</h2>
             <p>Análisis completo de participación y adjudicación de ofertas</p>
         </div>
         
@@ -1047,7 +1047,7 @@ def generar_reporte_consolidado_ofertas(graficas_creadas, output_dir, resultados
             </div>
             <div class="stat-box">
                 <div class="stat-number participantes">{num_participantes}</div>
-                <div class="stat-label">Participaron en Pyomo</div>
+                <div class="stat-label">Participaron en </div>
             </div>
             <div class="stat-box">
                 <div class="stat-number no-participantes">{num_no_participantes}</div>
@@ -1063,7 +1063,7 @@ def generar_reporte_consolidado_ofertas(graficas_creadas, output_dir, resultados
         <div class="section-header">
             <h2 class="section-title">✅ Ofertas Participantes ({num_participantes})</h2>
             <p class="section-description">
-                Estas ofertas participaron en el proceso de optimización Pyomo y tienen análisis 
+                Estas ofertas participaron en el proceso de optimización y tienen análisis 
                 detallado de demanda asignada, no asignada y evolución de precios. 
                 <strong>Tasa de participación: {porcentaje_participacion:.1f}%</strong>
             </p>

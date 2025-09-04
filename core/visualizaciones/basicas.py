@@ -980,13 +980,28 @@ def crear_grafica_torta_adjudicacion(resultados_dict, ofertas_df=None):
         # GRÁFICA 2: Por oferta (ADAPTATIVA)
         # ==========================================
         
-        # Paleta de colores extendida
-        colores_base = [
-            '#1f4e79', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6', 
-            '#3498db', '#e67e22', '#1abc9c', '#34495e', '#c0392b',
-            '#d35400', '#8e44ad', '#16a085', '#2980b9', '#27ae60',
-            '#8b4513', '#ff6347', '#4682b4', '#daa520', '#cd853f'
-        ]
+        # ✅ CAMBIO 1: Función de colores dinámicos (del consolidado)
+        def generar_colores_ofertas(num_ofertas):
+            import colorsys
+            
+            colores = []
+            for i in range(num_ofertas):
+                # Distribuir con más separación para evitar similares
+                hue = (i * 0.618033988749895) % 1  # Proporción áurea para mejor distribución
+                saturation = 0.9 if i % 2 == 0 else 0.7  # Alternar saturación
+                value = 0.8 if i % 3 == 0 else 0.6  # Alternar brillo
+                
+                rgb = colorsys.hsv_to_rgb(hue, saturation, value)
+                hex_color = '#{:02x}{:02x}{:02x}'.format(
+                    int(rgb[0] * 255), int(rgb[1] * 255), int(rgb[2] * 255)
+                )
+                colores.append(hex_color)
+            
+            return colores
+        
+        # Generar colores dinámicamente
+        total_segmentos = len(ofertas_individuales) + (1 if ofertas_agrupadas else 0)
+        colores_dinamicos = generar_colores_ofertas(total_segmentos)
         
         # Preparar datos
         labels_ofertas = []
@@ -1003,7 +1018,7 @@ def crear_grafica_torta_adjudicacion(resultados_dict, ofertas_df=None):
             
             labels_ofertas.append(label)
             values_ofertas.append(agente_info['asignado_gwh'])
-            colors_ofertas.append(colores_base[i % len(colores_base)])
+            colors_ofertas.append(colores_dinamicos[i])  # ✅ Usar colores dinámicos
         
         # Grupo "Otros"
         if ofertas_agrupadas:
@@ -1066,7 +1081,8 @@ def crear_grafica_torta_adjudicacion(resultados_dict, ofertas_df=None):
                     values=values_ofertas,
                     hole=0.3,
                     marker_colors=colors_ofertas,
-                    textinfo='label',
+                    textinfo='label+percent+value',  # ✅ CAMBIO 2: Agregar porcentajes
+                    texttemplate='%{label}<br>%{percent}<br>%{value:.1f} GWh',  # ✅ Igual que la izquierda
                     textfont=dict(size=10),
                     showlegend=False,
                     hovertemplate=hover_templates  # Usar templates personalizados
@@ -1112,3 +1128,4 @@ def crear_grafica_torta_adjudicacion(resultados_dict, ofertas_df=None):
     except Exception as e:
         logger.error(f"Error al crear gráfica adaptativa: {e}")
         return None
+    
