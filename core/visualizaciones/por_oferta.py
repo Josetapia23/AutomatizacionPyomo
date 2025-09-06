@@ -1036,7 +1036,7 @@ def generar_reporte_consolidado_ofertas(graficas_creadas, output_dir, resultados
     <body>
         <div class="header">
             <h1>📊 REPORTE COMPLETO DE OFERTAS</h1>
-            <h2>Sistema de Optimización Energética</h2>
+            <h2>Sistema de Optimización Energética </h2>
             <p>Análisis completo de participación y adjudicación de ofertas</p>
         </div>
         
@@ -1047,7 +1047,7 @@ def generar_reporte_consolidado_ofertas(graficas_creadas, output_dir, resultados
             </div>
             <div class="stat-box">
                 <div class="stat-number participantes">{num_participantes}</div>
-                <div class="stat-label">Participaron en </div>
+                <div class="stat-label">Participaron </div>
             </div>
             <div class="stat-box">
                 <div class="stat-number no-participantes">{num_no_participantes}</div>
