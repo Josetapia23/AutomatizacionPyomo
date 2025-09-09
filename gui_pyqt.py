@@ -16,7 +16,7 @@ class OptimizacionPyQtGUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Optimización Selección de Ofertas de Compra")
-        self.setGeometry(100, 100, 1200, 800)
+        self.setGeometry(100, 100, 1200, 700)  # Reducido altura sin log
         
         # Variables
         self.crecimiento_var = ""
@@ -119,22 +119,6 @@ class OptimizacionPyQtGUI(QMainWindow):
                     stop:0 #7c3aed, stop:1 #6b21a8);
             }
             
-            QPushButton#btn_config {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #6b7280, stop:1 #4b5563);
-                color: white;
-                border: none;
-                border-radius: 10px;
-                padding: 15px;
-                font-size: 14px;
-                text-align: left;
-            }
-            
-            QPushButton#btn_config:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #4b5563, stop:1 #374151);
-            }
-            
             QPushButton#btn_archivo {
                 background-color: #3182ce;
                 color: white;
@@ -146,15 +130,6 @@ class OptimizacionPyQtGUI(QMainWindow):
             
             QPushButton#btn_archivo:hover {
                 background-color: #2c5aa0;
-            }
-            
-            QTextEdit {
-                border: 1px solid #e2e8f0;
-                border-radius: 8px;
-                background-color: #f8f9fa;
-                font-family: 'Consolas', monospace;
-                font-size: 12px;
-                padding: 10px;
             }
         """)
         
@@ -222,13 +197,12 @@ class OptimizacionPyQtGUI(QMainWindow):
         # Espaciado
         botones_layout.addSpacing(20)
         
-        # Botones individuales
+        # Botones individuales (SIN el botón de configuración)
         botones_lista = [
             ("📊 Crear/Actualizar proyección de indexadores", "btn_accion", self.crear_indexadores),
             ("📊 Crear/Actualizar proyección de precio SICEP", "btn_accion", self.crear_sicep),
             ("📋 Procesar ofertas (Solo tabla maestra y precios)", "btn_accion", self.procesar_ofertas),
-            ("⚡ Optimizar asignación de ofertas con Pyomo", "btn_accion", self.optimizar),
-            ("⚙️ Ver configuración actual", "btn_config", self.ver_config)
+            ("⚡ Optimizar asignación de ofertas con Pyomo", "btn_accion", self.optimizar)
         ]
         
         for texto, estilo, comando in botones_lista:
@@ -239,22 +213,6 @@ class OptimizacionPyQtGUI(QMainWindow):
             
         botones_layout.addStretch()
         content_layout.addWidget(botones_widget)
-        
-        # ==================== ÁREA DE LOG ====================
-        log_frame = QFrame()
-        log_frame.setMaximumHeight(150)
-        log_layout = QVBoxLayout()
-        log_frame.setLayout(log_layout)
-        
-        log_titulo = QLabel("Log de Ejecución")
-        log_titulo.setObjectName("campo_label")
-        log_layout.addWidget(log_titulo)
-        
-        self.log_text = QTextEdit()
-        self.log_text.setMaximumHeight(120)
-        log_layout.addWidget(self.log_text)
-        
-        main_layout.addWidget(log_frame)
         
     def crear_campo_pyqt(self, layout, etiqueta, placeholder):
         """Crear campo de entrada con PyQt"""
@@ -303,11 +261,6 @@ class OptimizacionPyQtGUI(QMainWindow):
         layout.addWidget(file_widget)
         layout.addSpacing(15)
         
-    def log_mensaje(self, mensaje):
-        """Agregar mensaje al log"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        self.log_text.append(f"[{timestamp}] {mensaje}")
-        
     def seleccionar_archivo(self, entry):
         """Seleccionar archivo"""
         archivo, _ = QFileDialog.getOpenFileName(
@@ -316,44 +269,40 @@ class OptimizacionPyQtGUI(QMainWindow):
         )
         if archivo:
             entry.setText(archivo)
-            self.log_mensaje(f"📄 Archivo: {os.path.basename(archivo)}")
+            print(f"📄 Archivo seleccionado: {os.path.basename(archivo)}")
             
     def seleccionar_carpeta(self, entry):
         """Seleccionar carpeta"""
         carpeta = QFileDialog.getExistingDirectory(self, "Seleccionar carpeta")
         if carpeta:
             entry.setText(carpeta)
-            self.log_mensaje(f"📁 Carpeta: {os.path.basename(carpeta)}")
+            print(f"📁 Carpeta seleccionada: {os.path.basename(carpeta)}")
     
     # ==================== FUNCIONES DE BOTONES ====================
     def ejecutar_flujo_completo(self):
-        self.log_mensaje("🚀 Ejecutando flujo completo...")
+        print("🚀 Ejecutando flujo completo...")
         QMessageBox.information(
             self, "PyQt Demo", 
             "¡Interfaz PyQt funcionando!\n\n" +
             "Aspecto más nativo y profesional.\n" +
-            "Pero requiere reescribir TODO el código."
+            "Ahora sin log ni botón de configuración."
         )
         
     def crear_indexadores(self):
-        self.log_mensaje("📊 Creando indexadores...")
+        print("📊 Creando indexadores...")
         QMessageBox.information(self, "Info", "Crear indexadores (Demo PyQt)")
         
     def crear_sicep(self):
-        self.log_mensaje("📊 Creando SICEP...")
+        print("📊 Creando SICEP...")
         QMessageBox.information(self, "Info", "Crear SICEP (Demo PyQt)")
         
     def procesar_ofertas(self):
-        self.log_mensaje("📋 Procesando ofertas...")
+        print("📋 Procesando ofertas...")
         QMessageBox.information(self, "Info", "Procesar ofertas (Demo PyQt)")
         
     def optimizar(self):
-        self.log_mensaje("⚡ Optimizando...")
+        print("⚡ Optimizando...")
         QMessageBox.information(self, "Info", "Optimizar (Demo PyQt)")
-        
-    def ver_config(self):
-        self.log_mensaje("⚙️ Configuración...")
-        QMessageBox.information(self, "Info", "Ver configuración (Demo PyQt)")
 
 def main():
     """Función principal"""
