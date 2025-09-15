@@ -1112,7 +1112,7 @@ def crear_grafica_torta_adjudicacion(resultados_dict, ofertas_df=None):
         # ANOTACIÓN MÍNIMA Y COMPACTA
         # ==========================================
         fig.add_annotation(
-            x=0.5, y=-0.08,
+            x=0.01, y=-0.2,
             xref="paper", yref="paper",
             text=f"📊 Total: {total_ofertado_gwh:.1f} GWh • ✅ Adjudicado: {total_asignado_gwh:.1f} GWh ({(total_asignado_gwh/total_ofertado_gwh*100) if total_ofertado_gwh > 0 else 0:.1f}%)",
             showarrow=False,
