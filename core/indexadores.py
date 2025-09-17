@@ -100,7 +100,7 @@ def calcular_denominador(fecha_base, indexador, denominador, indexadores_df, pro
     
     return valor.iloc[0] if not valor.empty else None
 
-def crear_proyeccion_indexadores(datos_iniciales=DATOS_INICIALES, carpeta_ofertas=None):
+def crear_proyeccion_indexadores(datos_iniciales=DATOS_INICIALES, carpeta_ofertas=None, crecimiento_anual=None):
     """
     Crea o actualiza la hoja 'PROYECCIÓN INDEXADORES' en el archivo de datos iniciales,
     proyectando valores mes a mes hasta la última fecha en la hoja 'cantidad' 
@@ -109,6 +109,7 @@ def crear_proyeccion_indexadores(datos_iniciales=DATOS_INICIALES, carpeta_oferta
     Args:
         datos_iniciales (Path): Ruta al archivo de datos iniciales
         carpeta_ofertas (Path, opcional): Carpeta donde se encuentran las ofertas
+        crecimiento_anual (float, opcional): Crecimiento anual en porcentaje. Si no se proporciona, se solicita al usuario.
         
     Returns:
         bool: True si la operación fue exitosa, False en caso contrario
@@ -146,37 +147,39 @@ def crear_proyeccion_indexadores(datos_iniciales=DATOS_INICIALES, carpeta_oferta
     proyeccion_anterior_df = None
     
     if hoja_existente:
-        # Leer la proyección existente
-        proyeccion_anterior_df = leer_excel_seguro(datos_iniciales, "PROYECCIÓN INDEXADORES")
-        if not proyeccion_anterior_df.empty:
-            usar_proyeccion_existente = True
-            print("Se encontró una proyección existente y se usará como base para la actualización")
-            logger.info("Se encontró una proyección existente y se usará como base para la actualización")
+        try:
+            proyeccion_anterior_df = leer_excel_seguro(datos_iniciales, "PROYECCIÓN INDEXADORES")
+            if not proyeccion_anterior_df.empty:
+                usar_proyeccion_existente = True
+                print("Se encontró una proyección existente y se usará como base para la actualización")
+                logger.info("Se encontró una proyección existente y se usará como base para la actualización")
+        except Exception as e:
+            logger.warning(f"Error al leer proyección existente: {e}")
     
-    # Si no existe o está vacía, usaremos los indexadores originales
+    # Leer indexadores existentes
+    indexadores_df = leer_excel_seguro(datos_iniciales, "INDEXADORES")
+    if indexadores_df.empty:
+        logger.error(f"No se encontró o está vacía la hoja INDEXADORES en {datos_iniciales}")
+        return False
+    
+    # Convertir fechas
+    indexadores_df['fechaoperacion'] = pd.to_datetime(indexadores_df['fechaoperacion'], format="%d/%m/%Y").dt.date
+    
+    # Determinar valores base y fecha de inicio
     if not usar_proyeccion_existente:
-        # Leer los indexadores originales
-        indexadores_df = leer_excel_seguro(datos_iniciales, sheet_name="INDEXADORES")
-        if indexadores_df.empty:
-            logger.error("No se pudo leer la hoja INDEXADORES del archivo de datos iniciales")
-            return False
+        # Usar valores de la última fecha en indexadores
+        ultima_fecha_indexadores = indexadores_df['fechaoperacion'].max()
+        fila_base = indexadores_df.loc[indexadores_df['fechaoperacion'] == ultima_fecha_indexadores].iloc[0]
         
-        # Convertir columnas de fechas
-        indexadores_df['fechaoperacion'] = pd.to_datetime(indexadores_df['fechaoperacion'], format="%d/%m/%Y").dt.date
-        
-        # Obtener la última fecha de indexadores 
-        fecha_mayor_indexadores = indexadores_df['fechaoperacion'].max()
-        fila_base = indexadores_df.loc[indexadores_df['fechaoperacion'] == fecha_mayor_indexadores].iloc[0]
-        
-        # Extraer valores base
         oferta_interna_prov = fila_base['oferta_interna_prov']
-        oferta_interna_def = fila_base['oferta_interna_def']
+        oferta_interna_def = fila_base['oferta_interna_def'] 
         ipc = fila_base['ipc']
         
-        # Fecha de inicio para la proyección
-        fecha_inicio = fecha_mayor_indexadores
+        
+        fecha_inicio = ultima_fecha_indexadores  
+        
     else:
-        # Convertir columnas de fechas de la proyección existente
+        # Usar valores de la última fecha de la proyección anterior
         proyeccion_anterior_df['fechaoperacion'] = pd.to_datetime(proyeccion_anterior_df['fechaoperacion']).dt.date
         
         # Obtener la última fecha de la proyección anterior
@@ -203,13 +206,26 @@ def crear_proyeccion_indexadores(datos_iniciales=DATOS_INICIALES, carpeta_oferta
         print(f"La proyección ya cubre hasta {fecha_mayor_proyeccion}, que es posterior a la última fecha de demanda ({fecha_mayor_cantidad})")
         return True
     
-    # Solicitar el crecimiento anual al usuario
-    crecimiento_anual = solicitar_input_seguro(
-        "Ingrese el crecimiento indexador anual (ej. 4 para 4%): ",
-        tipo=float,
-        validacion=lambda x: x >= 0,
-        mensaje_error="El crecimiento debe ser un número positivo."
-    )
+    # ========================================================================
+    # ✅ MODIFICACIÓN PARA GUI: Obtener crecimiento anual (consola o GUI)
+    # ========================================================================
+    if crecimiento_anual is None:
+        # Modo consola: solicitar al usuario (comportamiento original)
+        crecimiento_anual = solicitar_input_seguro(
+            "Ingrese el crecimiento indexador anual (ej. 4 para 4%): ",
+            tipo=float,
+            validacion=lambda x: x >= 0,
+            mensaje_error="El crecimiento debe ser un número positivo."
+        )
+    else:
+        # Modo GUI: usar valor proporcionado
+        print(f"Usando crecimiento anual: {crecimiento_anual}%")
+        
+        # Validar que el valor sea correcto
+        if crecimiento_anual < 0:
+            logger.error(f"El crecimiento anual debe ser positivo: {crecimiento_anual}")
+            return False
+    # ========================================================================
     
     # Calcular variación mensual aproximada
     var_mensual = (1 + crecimiento_anual / 100) ** (1 / 12) - 1
@@ -269,7 +285,7 @@ def crear_proyeccion_indexadores(datos_iniciales=DATOS_INICIALES, carpeta_oferta
     
     return resultado
 
-def crear_proyeccion_precio_sicep(datos_iniciales=DATOS_INICIALES):
+def crear_proyeccion_precio_sicep(datos_iniciales=DATOS_INICIALES, fecha_base_sicep=None):
     """
     Crea o actualiza la hoja 'PROYECCIÓN PRECIO SICEP' en el archivo de datos iniciales,
     proyectando los precios mensuales a partir de los datos anuales.
@@ -477,12 +493,27 @@ def crear_proyeccion_precio_sicep(datos_iniciales=DATOS_INICIALES):
     print("\nLa fecha base es necesaria para calcular correctamente los precios mensuales del SICEP y FNCER.")
     print("Esta fecha es el punto de referencia desde el cual se realizarán las proyecciones.")
     
-    fecha_base_str = solicitar_input_seguro(
-        "\nIngrese la fecha base para el SICEP (formato DD/MM/YYYY, donde DD debe ser 01): ",
-        tipo=str,
-        validacion=lambda x: len(x.split('/')) == 3 and x.split('/')[0] == '01',
-        mensaje_error="La fecha debe estar en formato DD/MM/YYYY y el día debe ser 01."
-    )
+    # Obtener fecha base (consola o GUI)
+    if fecha_base_sicep is None:
+        # Modo consola: solicitar al usuario
+        print("\nLa fecha base es necesaria para calcular correctamente los precios mensuales del SICEP y FNCER.")
+        print("Esta fecha es el punto de referencia desde el cual se realizarán las proyecciones.")
+        
+        fecha_base_str = solicitar_input_seguro(
+            "\nIngrese la fecha base para el SICEP (formato DD/MM/YYYY, donde DD debe ser 01): ",
+            tipo=str,
+            validacion=lambda x: len(x.split('/')) == 3 and x.split('/')[0] == '01',
+            mensaje_error="La fecha debe estar en formato DD/MM/YYYY y el día debe ser 01."
+        )
+    else:
+        # Modo GUI: usar valor proporcionado
+        fecha_base_str = fecha_base_sicep
+        print(f"Usando fecha base SICEP: {fecha_base_str}")
+        
+        # Validar formato
+        if not (len(fecha_base_str.split('/')) == 3 and fecha_base_str.split('/')[0] == '01'):
+            logger.error(f"Formato de fecha incorrecto: {fecha_base_str}")
+            return False
     
     try:
         fecha_base = datetime.strptime(fecha_base_str, "%d/%m/%Y").date()

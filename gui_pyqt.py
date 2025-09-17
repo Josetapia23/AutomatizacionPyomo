@@ -43,8 +43,20 @@ class WorkerThread(QThread):
         try:
             if self.operacion == "flujo_completo":
                 self.progress.emit("🚀 Iniciando flujo completo...")
-                # AQUÍ SE EJECUTARÁ EL PROYECTO CON LOS PARÁMETROS DE LA INTERFAZ
                 result = self.ejecutar_flujo_con_parametros()
+                
+            elif self.operacion == "indexadores":  # 🎯 AGREGAR ESTE CASO
+                self.progress.emit("📊 Iniciando proyección de indexadores...")
+                result = self.ejecutar_indexadores()
+                
+            elif self.operacion == "sicep":
+                self.progress.emit("💰 Iniciando proyección de precio SICEP...")
+                result, mensaje = self.ejecutar_sicep()
+                if result:
+                    self.finished.emit(True, mensaje)
+                else:
+                    self.finished.emit(False, mensaje)
+                return
                 
             elif self.operacion == "validar_campos":
                 self.progress.emit("🔍 Validando campos...")
@@ -81,6 +93,140 @@ class WorkerThread(QThread):
         # Por ahora simulamos la validación
         self.progress.emit("✅ Todos los campos válidos")
         return True
+    
+    def ejecutar_indexadores(self):
+        """Ejecutar proyección de indexadores usando la función modificada"""
+        try:
+            # Obtener parámetros de la GUI
+            crecimiento_str = self.kwargs.get('crecimiento_anual', '')
+            datos_iniciales = self.kwargs.get('archivo_demanda', '')
+            carpeta_ofertas = self.kwargs.get('carpeta_ofertas', '')
+            
+            self.progress.emit("🔍 Validando parámetros...")
+            
+            # Validar crecimiento
+            try:
+                crecimiento = float(crecimiento_str)
+                if crecimiento < 0:
+                    return False, "El crecimiento anual debe ser positivo"
+            except ValueError:
+                return False, "El crecimiento anual debe ser un número válido"
+            
+            # Validar archivos
+            if not datos_iniciales:
+                return False, "Debe seleccionar el archivo de datos iniciales"
+            if not os.path.exists(datos_iniciales):
+                return False, f"No se encuentra el archivo: {datos_iniciales}"
+            
+            if not carpeta_ofertas:
+                return False, "Debe seleccionar la carpeta de ofertas"
+            if not os.path.exists(carpeta_ofertas):
+                return False, f"No se encuentra la carpeta: {carpeta_ofertas}"
+            
+            self.progress.emit(f"📊 Ejecutando con crecimiento {crecimiento}%...")
+            
+            # LLAMAR A TU FUNCIÓN MODIFICADA
+            from core.indexadores import crear_proyeccion_indexadores
+            
+            resultado = crear_proyeccion_indexadores(
+                datos_iniciales=datos_iniciales,
+                carpeta_ofertas=carpeta_ofertas,
+                crecimiento_anual=crecimiento
+            )
+            
+            if resultado:
+                return True, "Proyección de indexadores creada exitosamente"
+            else:
+                return False, "Error creando proyección de indexadores"
+                
+        except Exception as e:
+            return False, f"Error ejecutando indexadores: {str(e)}"
+        
+    def ejecutar_sicep(self):
+        """Ejecutar proyección de precio SICEP usando la función modificada"""
+        try:
+            # Obtener parámetros de la GUI
+            fecha_sicep = self.kwargs.get('fecha_sicep', '')
+            datos_iniciales = self.kwargs.get('archivo_demanda', '')
+            
+            # 🔍 LOGGING DETALLADO - PASO 1: Parámetros recibidos
+            print(f"\n=== DEBUG GUI SICEP - INICIO ===")
+            print(f"DEBUG GUI - fecha_sicep recibida: '{fecha_sicep}'")
+            print(f"DEBUG GUI - datos_iniciales: '{datos_iniciales}'")
+            print(f"DEBUG GUI - kwargs completos: {self.kwargs}")
+            
+            self.progress.emit("🔍 Validando parámetros...")
+            
+            # Validar fecha
+            if not fecha_sicep:
+                return False, "Debe ingresar la fecha base SICEP"
+            if not fecha_sicep.startswith('01/'):
+                return False, "La fecha SICEP debe comenzar con 01/"
+            
+            # Validar formato completo de fecha
+            try:
+                from datetime import datetime
+                fecha_parseada = datetime.strptime(fecha_sicep, "%d/%m/%Y")
+                print(f"DEBUG GUI - Fecha parseada correctamente: {fecha_parseada}")
+            except ValueError as e:
+                print(f"DEBUG GUI - Error parsing fecha: {e}")
+                return False, "Formato de fecha inválido. Use DD/MM/YYYY"
+            
+            # Validar archivo
+            if not datos_iniciales:
+                return False, "Debe seleccionar el archivo de datos iniciales"
+            if not os.path.exists(datos_iniciales):
+                return False, f"No se encuentra el archivo: {datos_iniciales}"
+            
+            print(f"DEBUG GUI - Archivo existe: {os.path.exists(datos_iniciales)}")
+            print(f"DEBUG GUI - Archivo path absoluto: {os.path.abspath(datos_iniciales)}")
+            
+            self.progress.emit(f"📅 Ejecutando con fecha base {fecha_sicep}...")
+            
+            # 🔍 LOGGING DETALLADO - PASO 2: Antes de llamar la función
+            print(f"\n=== DEBUG GUI - LLAMANDO FUNCIÓN ===")
+            print(f"DEBUG GUI - Parámetros para crear_proyeccion_precio_sicep:")
+            print(f"  datos_iniciales: '{datos_iniciales}'")
+            print(f"  fecha_base_sicep: '{fecha_sicep}'")
+            print(f"DEBUG GUI - Verificando si el archivo tiene proyección existente...")
+            
+            # Verificar si ya existe proyección SICEP
+            try:
+                from core.utils import verificar_hoja_existe
+                tiene_proyeccion = verificar_hoja_existe(datos_iniciales, "PROYECCIÓN PRECIO SICEP")
+                print(f"DEBUG GUI - ¿Tiene proyección SICEP existente? {tiene_proyeccion}")
+            except Exception as e:
+                print(f"DEBUG GUI - Error verificando hoja existente: {e}")
+            
+            # LLAMAR A LA FUNCIÓN MODIFICADA
+            from core.indexadores import crear_proyeccion_precio_sicep
+            
+            print(f"DEBUG GUI - Llamando función ahora...")
+            
+            resultado = crear_proyeccion_precio_sicep(
+                datos_iniciales=datos_iniciales,
+                fecha_base_sicep=fecha_sicep  # 🎯 PASAR EL PARÁMETRO DESDE GUI
+            )
+            
+            # 🔍 LOGGING DETALLADO - PASO 3: Después de ejecutar
+            print(f"\n=== DEBUG GUI - RESULTADO ===")
+            print(f"DEBUG GUI - Resultado de la función: {resultado}")
+            print(f"=== DEBUG GUI SICEP - FIN ===\n")
+            
+            if resultado:
+                return True, "Proyección de precio SICEP creada exitosamente"
+            else:
+                return False, "Error creando proyección de precio SICEP"
+                
+        except Exception as e:
+            print(f"\n=== DEBUG GUI - ERROR ===")
+            print(f"DEBUG GUI - Excepción capturada: {type(e).__name__}")
+            print(f"DEBUG GUI - Mensaje de error: {str(e)}")
+            import traceback
+            print(f"DEBUG GUI - Traceback completo:")
+            traceback.print_exc()
+            print(f"=== DEBUG GUI - ERROR FIN ===\n")
+            return False, f"Error ejecutando SICEP: {str(e)}"
 
 class OptimizacionPyQtGUICompleta(QMainWindow):
     def __init__(self):
