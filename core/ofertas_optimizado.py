@@ -31,9 +31,6 @@ from core.indexadores import calcular_numerador, calcular_denominador, crear_pro
 
 logger = logging.getLogger(__name__)
 
-# ============================================================================
-# MANTENER FUNCIONES DE LECTURA RÁPIDA (ESTAS ESTÁN BIEN)
-# ============================================================================
 
 def leer_excel_ultra_rapido(archivo_path, hojas_necesarias):
     """
@@ -151,9 +148,7 @@ def leer_excel_fallback(archivo_path, hojas_necesarias):
             resultados[hoja] = pd.DataFrame()
     
     return resultados
-# ============================================================================
-# CORREGIR CÁLCULO DE INDEXADORES - USAR LÓGICA ORIGINAL
-# ============================================================================
+
 
 def precomputar_indexadores_corregido(indexadores_df, proyeccion_df):
     """
@@ -457,11 +452,13 @@ def procesar_precio_bolsa_rapido(datos_iniciales=DATOS_INICIALES):
 # ============================================================================
 
 def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_iniciales=DATOS_INICIALES, 
-                                        archivo_salida=RESULTADO_OFERTAS):
+                                        archivo_salida=RESULTADO_OFERTAS, constante_sicep=None):
     """
     Versión OPTIMIZADA CORREGIDA con VALIDACIÓN DE NOMBRES ESTANDARIZADOS.
     MANTIENE la velocidad pero AGREGA validación automática de nombres.
     Formato esperado: Agente-OFERTA-# (ejemplo: EPM-OFERTA-001.xlsx)
+    
+    MODIFICACIÓN ÚNICA: Puede recibir constante_sicep desde GUI
     """
     print("🚀 INICIANDO PROCESAMIENTO OPTIMIZADO CON ESTANDARIZACION")
     start_total = time.time()
@@ -477,22 +474,32 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
         logger.error(f"No se encontro la carpeta de ofertas: {carpeta_ofertas}")
         return False
     
-    # Solicitar constante SICEP (sin cambios)
-    try:
-        constante_sicep = solicitar_input_seguro(
-            "Ingrese la constante para el cálculo del precio SICEP: ",
-            tipo=float,
-            validacion=lambda x: x > 0,
-            mensaje_error="La constante debe ser un número positivo."
-        )
-        print(f"Usando constante SICEP: {constante_sicep}")
-    except Exception as e:
-        logger.warning(f"Error al solicitar constante SICEP: {e}. Usando valor predeterminado.")
-        constante_sicep = 1.0
-        print(f"Usando constante SICEP predeterminada: {constante_sicep}")
+    # ✅ ÚNICA MODIFICACIÓN: Obtener constante SICEP (consola o GUI)
+    if constante_sicep is None:
+        # Modo consola: solicitar al usuario (comportamiento original)
+        try:
+            constante_sicep = solicitar_input_seguro(
+                "Ingrese la constante para el cálculo del precio SICEP: ",
+                tipo=float,
+                validacion=lambda x: x > 0,
+                mensaje_error="La constante debe ser un número positivo."
+            )
+            print(f"Usando constante SICEP: {constante_sicep}")
+        except Exception as e:
+            logger.warning(f"Error al solicitar constante SICEP: {e}. Usando valor predeterminado.")
+            constante_sicep = 1.0
+            print(f"Usando constante SICEP predeterminada: {constante_sicep}")
+    else:
+        # Modo GUI: usar valor proporcionado
+        print(f"Usando constante SICEP desde GUI: {constante_sicep}")
+        
+        # Validar que el valor sea correcto
+        if constante_sicep <= 0:
+            logger.error(f"La constante SICEP debe ser positiva: {constante_sicep}")
+            return False
     
     # =========================================================================
-    # FASE 1: PRE-CARGA OPTIMIZADA (sin cambios)
+    # FASE 1: PRE-CARGA OPTIMIZADA (EXACTAMENTE IGUAL AL ORIGINAL)
     # =========================================================================
     
     print("\n📊 FASE 1: Pre-cargando datos compartidos...")
@@ -554,7 +561,7 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
     print(f"✅ FASE 1 completada en {end_fase1 - start_fase1:.1f} segundos")
     
     # =========================================================================
-    # FASE 2: PROCESAMIENTO OPTIMIZADO CON VALIDACIÓN DE NOMBRES
+    # FASE 2: PROCESAMIENTO OPTIMIZADO CON VALIDACIÓN DE NOMBRES (ORIGINAL)
     # =========================================================================
     
     print("\n🔄 FASE 2: Procesamiento optimizado con validación de nombres...")
@@ -622,7 +629,7 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
     ofertas_con_errores = 0
     total_registros = 0
     
-    # ===== PROCESAR SOLO LAS OFERTAS VÁLIDAS =====
+    # ===== PROCESAR SOLO LAS OFERTAS VÁLIDAS (LÓGICA ORIGINAL) =====
     for i, oferta_info in enumerate(ofertas_validas, 1):
         # USAR INFORMACIÓN DE LA VALIDACIÓN
         codigo_oferta = oferta_info.nombre_estandarizado  # Nombre estandarizado
@@ -672,13 +679,14 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
             cantidad_df = cantidad_df.dropna(subset=['FECHA'])
             precios_df = precios_df.dropna(subset=['FECHA'])
             
-            # ===== EXTRACCIÓN DE METADATA CON CAMPOS NUEVOS =====
+            # ===== EXTRACCIÓN DE METADATA CON LÓGICA ORIGINAL =====
             try:
+                # USAR LA LÓGICA ORIGINAL QUE FUNCIONABA
                 indexador_data = {
                     "CÓDIGO OFERTA": codigo_oferta,      # Nombre estandarizado
-                    "AGENTE": agente,                    # NUEVO: Agente extraído
-                    "NUMERO": numero,                    # NUEVO: Número extraído
-                    "ARCHIVO ORIGINAL": archivo,         # NUEVO: Nombre archivo original
+                    "AGENTE": agente,                    # Agente extraído
+                    "NUMERO": numero,                    # Número extraído
+                    "ARCHIVO ORIGINAL": archivo,         # Nombre archivo original
                     "INDEXADOR": indexador_df.loc[indexador_df["CONCEPTO"] == "INDEXADOR", "VALOR"].values[0],
                     "NUMERADOR": indexador_df.loc[indexador_df["CONCEPTO"] == "NUMERADOR", "VALOR"].values[0],
                     "DENOMINADOR": indexador_df.loc[indexador_df["CONCEPTO"] == "DENOMINADOR", "VALOR"].values[0],
@@ -703,7 +711,7 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
             es_fncer = indexador_data.get("FNCER", "NO") == "SI"
             registros_oferta = 0
             
-            # ===== PROCESAMIENTO OPTIMIZADO DE DATOS (sin cambios en lógica) =====
+            # ===== PROCESAMIENTO OPTIMIZADO DE DATOS (LÓGICA ORIGINAL) =====
             for fecha in cantidad_df['FECHA'].unique():
                 if pd.isna(fecha):
                     continue
@@ -761,17 +769,17 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
                             precio_indexado,
                             precio_sicep_val,
                             precio_bolsa_val,
-                            constante_sicep,
+                            constante_sicep,  # ← AQUÍ SE USA LA CONSTANTE (consola o GUI)
                             precio_fncer=precio_fncer_val,
                             es_oferta_fncer=es_fncer
                         )
                         
-                        # ===== CREAR REGISTRO CON CAMPOS NUEVOS =====
+                        # ===== CREAR REGISTRO CON LÓGICA ORIGINAL =====
                         registro = {
                             "CÓDIGO OFERTA": codigo_oferta,         # Nombre estandarizado
-                            "AGENTE": agente,                       # NUEVO: Agente
-                            "NUMERO": numero,                       # NUEVO: Número  
-                            "ARCHIVO ORIGINAL": archivo,            # NUEVO: Archivo original
+                            "AGENTE": agente,                       # Agente
+                            "NUMERO": numero,                       # Número  
+                            "ARCHIVO ORIGINAL": archivo,            # Archivo original
                             "FECHA": fecha,
                             "Atributo": hora,
                             "CANTIDAD": float(cantidad),
@@ -814,7 +822,7 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
     print(f"\n✅ FASE 2 completada en {end_fase2 - start_fase2:.1f} segundos")
     
     # =========================================================================
-    # FASE 3: GUARDAR RESULTADOS (sin cambios)
+    # FASE 3: GUARDAR RESULTADOS (LÓGICA ORIGINAL)
     # =========================================================================
     
     print("\n💾 FASE 3: Guardando resultados...")
@@ -842,49 +850,22 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
         end_fase3 = time.time()
         print(f"✅ FASE 3 completada en {end_fase3 - start_fase3:.1f} segundos")
         
-        # ===== ESTADÍSTICAS FINALES MEJORADAS =====
+        # ===== ESTADÍSTICAS FINALES =====
         end_total = time.time()
         tiempo_total = end_total - start_total
         
-        print(f"\n🎉 PROCESAMIENTO OPTIMIZADO CON ESTANDARIZACION COMPLETADO:")
+        print(f"\n🎉 PROCESAMIENTO OPTIMIZADO COMPLETADO:")
         print(f"   ⚡ Tiempo total: {tiempo_total:.1f} segundos")
         print(f"   📊 Ofertas exitosas: {ofertas_exitosas}/{len(ofertas_validas)}")
         print(f"   ❌ Ofertas con errores: {ofertas_con_errores}")
         print(f"   📈 Total registros: {total_registros:,}")
         print(f"   ⚡ Velocidad: {total_registros/tiempo_total:.0f} registros/segundo")
-        print(f"   🏢 Agentes procesados: {', '.join(sorted(resumen['agentes_encontrados']))}")
         print(f"   💾 Archivo guardado: {archivo_salida}")
-        print(f"   ✅ ESTANDARIZACION: Nombres validados automáticamente")
         
-        # Desglose por agente MEJORADO
-        if cantidades_precios_df is not None and not cantidades_precios_df.empty:
-            print(f"\n📈 DESGLOSE POR AGENTE:")
-            agente_stats = cantidades_precios_df.groupby('AGENTE').agg({
-                'CÓDIGO OFERTA': 'nunique',
-                'EVALUACIÓN': ['count', 'sum']
-            }).round(2)
-            
-            for agente in agente_stats.index:
-                ofertas_agente = agente_stats.loc[agente, ('CÓDIGO OFERTA', 'nunique')]
-                total_registros_agente = agente_stats.loc[agente, ('EVALUACIÓN', 'count')]
-                aprobados = agente_stats.loc[agente, ('EVALUACIÓN', 'sum')]
-                porcentaje_aprobacion = (aprobados / total_registros_agente * 100) if total_registros_agente > 0 else 0
-                
-                print(f"   🏢 {agente}: {ofertas_agente} ofertas, {total_registros_agente:,} registros, {porcentaje_aprobacion:.1f}% aprobados")
-            
-            # Evaluaciones globales
-            evaluaciones = cantidades_precios_df['EVALUACIÓN'].value_counts()
-            print(f"\n📈 RESULTADOS DE EVALUACIÓN GLOBAL:")
-            for eval_val, count in evaluaciones.items():
-                status = "✅ APROBADOS" if eval_val == 1 else "❌ RECHAZADOS"
-                percentage = (count / len(cantidades_precios_df)) * 100
-                print(f"   {status}: {count:,} registros ({percentage:.1f}%)")
-        
-        logger.info(f"Procesamiento optimizado con estandarización completado en {tiempo_total:.1f}s")
+        logger.info(f"Procesamiento optimizado completado en {tiempo_total:.1f}s")
         return True
         
     except Exception as e:
         logger.error(f"Error al guardar resultados: {e}")
         print(f"❌ ERROR al guardar: {e}")
-        return False
-    
+        return False 

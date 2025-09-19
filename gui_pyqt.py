@@ -57,7 +57,34 @@ class WorkerThread(QThread):
                 else:
                     self.finished.emit(False, mensaje)
                 return
-                
+            
+            elif self.operacion == "ofertas":
+                self.progress.emit("📋 Iniciando procesamiento de ofertas...")
+                result, mensaje = self.ejecutar_ofertas()
+                if result:
+                    self.finished.emit(True, mensaje)
+                else:
+                    self.finished.emit(False, mensaje)
+                return
+            
+            elif self.operacion == "optimizar":
+                self.progress.emit("⚡ Iniciando optimización con Pyomo...")
+                result, mensaje = self.ejecutar_optimizacion()
+                if result:
+                    self.finished.emit(True, mensaje)
+                else:
+                    self.finished.emit(False, mensaje)
+                return
+            
+            elif self.operacion == "visualizaciones":
+                self.progress.emit("📊 Iniciando generación de visualizaciones...")
+                result, mensaje = self.ejecutar_visualizaciones()
+                if result:
+                    self.finished.emit(True, mensaje)
+                else:
+                    self.finished.emit(False, mensaje)
+                return
+            
             elif self.operacion == "validar_campos":
                 self.progress.emit("🔍 Validando campos...")
                 result = self.validar_todos_los_campos()
@@ -227,7 +254,290 @@ class WorkerThread(QThread):
             traceback.print_exc()
             print(f"=== DEBUG GUI - ERROR FIN ===\n")
             return False, f"Error ejecutando SICEP: {str(e)}"
+        
+    def ejecutar_ofertas(self):
+        """Ejecutar procesamiento de ofertas usando la función modificada"""
+        try:
+            # Obtener parámetros de la GUI
+            datos_iniciales = self.kwargs.get('archivo_demanda', '')
+            carpeta_ofertas = self.kwargs.get('carpeta_ofertas', '')
+            carpeta_exportacion = self.kwargs.get('carpeta_exportacion', '')
+            constante_sicep = self.kwargs.get('constante_sicep', '')
+            
+            self.progress.emit("🔍 Validando parámetros...")
+            
+            # Validar constante SICEP
+            try:
+                constante_sicep_float = float(constante_sicep)
+                if constante_sicep_float <= 0:
+                    return False, "La constante SICEP debe ser mayor a 0"
+            except ValueError:
+                return False, "La constante SICEP debe ser un número válido"
+            
+            # Validar archivos y carpetas
+            if not datos_iniciales:
+                return False, "Debe seleccionar el archivo de datos iniciales"
+            if not os.path.exists(datos_iniciales):
+                return False, f"No se encuentra el archivo: {datos_iniciales}"
+            
+            if not carpeta_ofertas:
+                return False, "Debe seleccionar la carpeta de ofertas"
+            if not os.path.exists(carpeta_ofertas):
+                return False, f"No se encuentra la carpeta: {carpeta_ofertas}"
+            
+            if not carpeta_exportacion:
+                return False, "Debe seleccionar la carpeta de exportación"
+            if not os.path.exists(carpeta_exportacion):
+                return False, f"No se encuentra la carpeta: {carpeta_exportacion}"
+            
+            # Validar que haya archivos Excel en la carpeta de ofertas
+            archivos_excel = [f for f in os.listdir(carpeta_ofertas) if f.endswith(('.xlsx', '.xls'))]
+            if len(archivos_excel) == 0:
+                return False, "La carpeta de ofertas no contiene archivos Excel"
+            
+            self.progress.emit(f"📋 Procesando {len(archivos_excel)} ofertas con constante SICEP {constante_sicep_float}...")
+            
+            # Crear ruta de archivo de salida
+            archivo_salida = os.path.join(carpeta_exportacion, 'resultado_ofertas.xlsx')
+            
+            # LLAMAR A LA FUNCIÓN MODIFICADA
+            from core.ofertas_optimizado import procesar_ofertas_optimizado_corregido
+            
+            self.progress.emit("🚀 Ejecutando procesamiento optimizado...")
+            
+            resultado = procesar_ofertas_optimizado_corregido(
+                carpeta_ofertas=carpeta_ofertas,
+                datos_iniciales=datos_iniciales,
+                archivo_salida=archivo_salida,
+                constante_sicep=constante_sicep_float
+            )
+            
+            if resultado:
+                return True, f"Procesamiento de ofertas completado exitosamente. Archivo guardado en: {archivo_salida}"
+            else:
+                return False, "Error en el procesamiento de ofertas"
+                
+        except Exception as e:
+            return False, f"Error ejecutando procesamiento de ofertas: {str(e)}"   
 
+    def ejecutar_optimizacion(self):
+        """Ejecutar optimización con Pyomo usando los parámetros de la GUI"""
+        try:
+            # Obtener parámetros de la GUI
+            datos_iniciales = self.kwargs.get('archivo_demanda', '')
+            carpeta_exportacion = self.kwargs.get('carpeta_exportacion', '')
+            
+            self.progress.emit("🔍 Validando parámetros...")
+            
+            # Validar archivos y carpetas
+            if not datos_iniciales:
+                return False, "Debe seleccionar el archivo de datos iniciales"
+            if not os.path.exists(datos_iniciales):
+                return False, f"No se encuentra el archivo: {datos_iniciales}"
+            
+            if not carpeta_exportacion:
+                return False, "Debe seleccionar la carpeta de exportación"
+            if not os.path.exists(carpeta_exportacion):
+                return False, f"No se encuentra la carpeta: {carpeta_exportacion}"
+            
+            # Verificar que existe el archivo de ofertas procesadas (del paso anterior)
+            archivo_ofertas = os.path.join(carpeta_exportacion, 'resultado_ofertas.xlsx')
+            if not os.path.exists(archivo_ofertas):
+                return False, f"No se encuentra el archivo de ofertas procesadas: resultado_ofertas.xlsx\nDebe ejecutar primero el paso 'Procesar ofertas'"
+            
+            self.progress.emit("📊 Leyendo datos de demanda...")
+            
+            # IMPORTAR FUNCIONES DE OPTIMIZACIÓN
+            from core.evaluacion import leer_ofertas_evaluadas
+            from optimizacion.modelo import construir_modelo, extraer_resultados
+            from optimizacion.solver import resolver_modelo
+            
+            # Importar función de lectura de demanda
+            import sys
+            from pathlib import Path
+            sys.path.insert(0, str(Path(__file__).parent))
+            from main import leer_demanda
+            
+            # PASO 1: Leer demanda
+            demanda_df = leer_demanda(archivo=datos_iniciales, hoja="DEMANDA")
+            if demanda_df is None or demanda_df.empty:
+                return False, "No se pudo leer los datos de demanda del archivo de datos iniciales"
+            
+            self.progress.emit("📋 Leyendo ofertas evaluadas...")
+            
+            # PASO 2: Leer ofertas evaluadas (solo las válidas para optimización)
+            ofertas_df = leer_ofertas_evaluadas(archivo_ofertas, solo_validas=True)
+            if ofertas_df.empty:
+                return False, "No hay ofertas válidas para optimización en el archivo de resultados"
+            
+            # Leer TODAS las ofertas para el resumen completo
+            ofertas_df_completas = leer_ofertas_evaluadas(archivo_ofertas, solo_validas=False)
+            
+            self.progress.emit(f"✅ Cargadas {len(ofertas_df)} ofertas válidas de {len(ofertas_df_completas)} totales")
+            
+            self.progress.emit("🛠️ Construyendo modelo de optimización...")
+            
+            # PASO 3: Construir modelo de optimización
+            model = construir_modelo(demanda_df, ofertas_df)
+            if model is None:
+                return False, "Error al construir el modelo de optimización"
+            
+            self.progress.emit("⚡ Resolviendo modelo con CBC solver...")
+            
+            # PASO 4: Resolver modelo
+            result = resolver_modelo(model)
+            if result.solver.termination_condition != 'optimal':
+                # No es un error fatal, pero advertir al usuario
+                condicion = result.solver.termination_condition
+                self.progress.emit(f"⚠️ Solver terminó con condición: {condicion}")
+            
+            self.progress.emit("📤 Extrayendo resultados...")
+            
+            # PASO 5: Extraer resultados
+            resultados_dict = extraer_resultados(model, ofertas_df_completas)
+            if not resultados_dict:
+                return False, "Error al extraer los resultados del modelo"
+            
+            self.progress.emit("💾 Guardando resultados...")
+            
+            # PASO 6: Guardar resultados en la carpeta de exportación
+            try:
+                # Importar funciones de exportación
+                from core.evaluacion import exportar_resultados_por_oferta
+                
+                # Crear nombres de archivos en la carpeta de exportación
+                archivo_base = os.path.join(carpeta_exportacion, 'resultado_ofertas.xlsx')
+                
+                # Exportar resultados por oferta
+                if exportar_resultados_por_oferta(resultados_dict, archivo_base):
+                    archivos_generados = []
+                    
+                    # Verificar qué archivos se generaron
+                    posibles_archivos = [
+                        'optimizacion_resultado_DA.xlsx',
+                        'optimizacion_resultado_ENA.xlsx', 
+                        'optimizacion_resultado_RESUMEN.xlsx',
+                        'optimizacion_resultado_DEMANDA_FALTANTE.xlsx'
+                    ]
+                    
+                    for archivo in posibles_archivos:
+                        ruta_completa = os.path.join(carpeta_exportacion, archivo)
+                        if os.path.exists(ruta_completa):
+                            archivos_generados.append(archivo)
+                    
+                    # Calcular estadísticas básicas
+                    total_ofertas = len(ofertas_df_completas['CÓDIGO OFERTA'].unique())
+                    ofertas_optimizadas = len(ofertas_df['CÓDIGO OFERTA'].unique())
+                    
+                    # Preparar mensaje de éxito
+                    mensaje_exito = f"Optimización completada exitosamente!\n\n"
+                    mensaje_exito += f"📊 Estadísticas:\n"
+                    mensaje_exito += f"• Total ofertas procesadas: {total_ofertas}\n" 
+                    mensaje_exito += f"• Ofertas válidas para optimización: {ofertas_optimizadas}\n"
+                    mensaje_exito += f"• Estado del solver: {result.solver.termination_condition}\n\n"
+                    mensaje_exito += f"📁 Archivos generados ({len(archivos_generados)}):\n"
+                    for archivo in archivos_generados:
+                        mensaje_exito += f"• {archivo}\n"
+                    mensaje_exito += f"\n📂 Ubicación: {carpeta_exportacion}"
+                    
+                    return True, mensaje_exito
+                else:
+                    return False, "Error al exportar los resultados de la optimización"
+                    
+            except Exception as e:
+                return False, f"Error al guardar resultados: {str(e)}"
+                
+        except ImportError as e:
+            return False, f"Error importing modules: {str(e)}\nVerifique que todas las dependencias estén instaladas (Pyomo, CBC solver)"
+        except Exception as e:
+            return False, f"Error ejecutando optimización: {str(e)}"
+    
+    def ejecutar_visualizaciones(self):
+        """Ejecutar generación de visualizaciones usando las funciones del proyecto"""
+        try:
+            # Obtener parámetros de la GUI
+            carpeta_exportacion = self.kwargs.get('carpeta_exportacion', '')
+            
+            self.progress.emit("🔍 Validando archivos necesarios...")
+            
+            # Validar carpeta de exportación
+            if not carpeta_exportacion or not os.path.exists(carpeta_exportacion):
+                return False, "Debe seleccionar una carpeta de exportación válida"
+            
+            # Verificar que existe resultado_ofertas.xlsx
+            archivo_ofertas = os.path.join(carpeta_exportacion, 'resultado_ofertas.xlsx')
+            if not os.path.exists(archivo_ofertas):
+                return False, f"No se encuentra resultado_ofertas.xlsx\nDebe ejecutar primero 'Procesar ofertas'"
+            
+            self.progress.emit("📋 Verificando módulo de visualizaciones...")
+            
+            # Verificar que el módulo de visualizaciones esté disponible
+            try:
+                from core.visualizaciones import generar_reporte_completo
+                VISUALIZACIONES_DISPONIBLES = True
+            except ImportError:
+                return False, "Módulo de visualizaciones no disponible\nVerifique que estén instaladas las dependencias (plotly, matplotlib)"
+            
+            self.progress.emit("🔄 Cargando resultados desde Excel...")
+            
+            # Cargar resultados (igual que en main.py)
+            from core.evaluacion import cargar_resultados_desde_excel, leer_ofertas_evaluadas
+            
+            resultados_dict = cargar_resultados_desde_excel(archivo_ofertas)
+            if not resultados_dict:
+                return False, "No se pudieron cargar los resultados desde resultado_ofertas.xlsx\nVerifique que el archivo tenga el formato correcto"
+            
+            self.progress.emit(f"✅ Resultados cargados: {len(resultados_dict)} hojas")
+            
+            # Leer ofertas para compatibilidad con visualizaciones
+            self.progress.emit("📊 Cargando datos de ofertas...")
+            ofertas_df = leer_ofertas_evaluadas(archivo_ofertas, solo_validas=False)
+            
+            if ofertas_df.empty:
+                self.progress.emit("⚠️ Sin datos de ofertas, continuando...")
+                import pandas as pd
+                ofertas_df = pd.DataFrame()
+            
+            self.progress.emit("🎨 Generando visualizaciones...")
+            
+            # Temporalmente cambiar la ruta en config para las visualizaciones
+            import config
+            ruta_original = getattr(config, 'RESULTADO_OFERTAS', None)
+            config.RESULTADO_OFERTAS = archivo_ofertas
+            
+            try:
+                # Generar visualizaciones (función principal del proyecto)
+                if generar_reporte_completo(resultados_dict, ofertas_df, archivo_ofertas):
+                    # Calcular ubicación de visualizaciones
+                    from pathlib import Path
+                    output_dir = Path(archivo_ofertas).parent / "visualizaciones"
+                    
+                    # Verificar archivos generados
+                    archivos_generados = []
+                    if output_dir.exists():
+                        archivos_html = list(output_dir.glob("*.html"))
+                        archivos_generados = [f.name for f in archivos_html]
+                    
+                    # Mensaje de éxito
+                    mensaje_exito = f"Visualizaciones generadas exitosamente!\n\n"
+                    mensaje_exito += f"📊 Archivos creados ({len(archivos_generados)}):\n"
+                    for archivo in archivos_generados:
+                        mensaje_exito += f"• {archivo}\n"
+                    mensaje_exito += f"\n📁 Ubicación: {output_dir}"
+                    mensaje_exito += f"\n🌐 Archivo principal: reporte_consolidado.html"
+                    mensaje_exito += f"\n\n💡 Abra los archivos HTML en su navegador"
+                    
+                    return True, mensaje_exito
+                else:
+                    return False, "Error al generar las visualizaciones"
+            finally:
+                # Restaurar ruta original
+                if ruta_original:
+                    config.RESULTADO_OFERTAS = ruta_original
+                
+        except Exception as e:
+            return False, f"Error ejecutando visualizaciones: {str(e)}"
+        
 class OptimizacionPyQtGUICompleta(QMainWindow):
     def __init__(self):
         super().__init__()
