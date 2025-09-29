@@ -1,8 +1,30 @@
+# Dependencias principales del proyecto
 pandas>=1.3.0
 numpy>=1.20.0
 openpyxl>=3.0.7
 matplotlib>=3.4.0
 pyomo>=6.4.0
 pytest>=6.2.5
+
+# Visualizaciones
 plotly>=5.10.0
 kaleido>=0.2.1
+
+# Interfaz gráfica (PyQt5)
+PyQt5>=5.15.0
+PyQt5-Qt5>=5.15.0
+PyQt5-sip>=12.8.0
+
+# Utilidades adicionales
+pathlib2>=2.3.6
+xlsxwriter>=3.0.0
+
+# Solver CBC (opcional - si se instala via pip)
+# Nota: En Windows también se puede instalar CBC manualmente
+# coincbc>=2.10.0
+
+# Logging y debugging
+colorama>=0.4.4
+
+# Fechas y tiempo
+python-dateutil>=2.8.2
