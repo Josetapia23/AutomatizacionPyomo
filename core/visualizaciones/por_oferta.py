@@ -472,7 +472,7 @@ def crear_grafica_oferta_no_participante(nombre_oferta, datos_originales):
     logger.info(f"Gráfica corregida creada para no participante: {nombre_oferta}")
     return fig
 
-def extraer_datos_oferta_original(nombre_oferta, resultados_dict):
+def extraer_datos_oferta_original(nombre_oferta, resultados_dict, archivo_ofertas=None):
     """
     FUNCIÓN CORREGIDA: Lee datos originales desde resultado_ofertas.xlsx
     Para ofertas no participantes, accede directamente al archivo de ofertas procesadas.
@@ -487,14 +487,16 @@ def extraer_datos_oferta_original(nombre_oferta, resultados_dict):
     logger.info(f"🔍 Extrayendo datos ORIGINALES para: {nombre_oferta}")
     
     # 1. IMPORTAR LA RUTA CORRECTA DEL ARCHIVO
-    try:
-        from config import RESULTADO_OFERTAS
-        archivo_ofertas = RESULTADO_OFERTAS
-        print(f"  📁 Usando archivo: {archivo_ofertas}")
-    except ImportError:
-        # Fallback si no se puede importar
-        archivo_ofertas = "output/resultado_ofertas.xlsx"
-        print(f"  📁 Usando fallback: {archivo_ofertas}")
+    if archivo_ofertas is None:
+        try:
+            from config import RESULTADO_OFERTAS
+            archivo_ofertas = RESULTADO_OFERTAS
+            print(f"  📁 Usando archivo de config: {archivo_ofertas}")
+        except ImportError:
+            archivo_ofertas = "output/resultado_ofertas.xlsx"
+            print(f"  📁 Usando fallback: {archivo_ofertas}")
+    else:
+        print(f"  📁 Usando archivo proporcionado: {archivo_ofertas}")
     
     # 2. VERIFICAR QUE EL ARCHIVO EXISTE
     if not os.path.exists(archivo_ofertas):
@@ -649,7 +651,7 @@ def extraer_datos_oferta_original(nombre_oferta, resultados_dict):
     
     return datos_finales
 
-def crear_graficas_por_oferta(resultados_dict, output_dir):
+def crear_graficas_por_oferta(resultados_dict, output_dir, archivo_ofertas=None):
     """
     Crea gráficas individuales para TODAS las ofertas: participantes Y no participantes.
     ACTUALIZADO: Incluye gráficas informativas para ofertas no participantes.
@@ -741,7 +743,7 @@ def crear_graficas_por_oferta(resultados_dict, output_dir):
         try:
             print(f"    🚫 {nombre_oferta} (NO PARTICIPANTE)")
             
-            datos_originales = extraer_datos_oferta_original(nombre_oferta, resultados_dict)
+            datos_originales = extraer_datos_oferta_original(nombre_oferta, resultados_dict, archivo_ofertas)
             
             if datos_originales is None:
                 print(f"      ⚠️ Sin datos originales")
@@ -1036,7 +1038,7 @@ def generar_reporte_consolidado_ofertas(graficas_creadas, output_dir, resultados
     <body>
         <div class="header">
             <h1>📊 REPORTE COMPLETO DE OFERTAS</h1>
-            <h2>Sistema de Optimización Energética</h2>
+            <h2>Sistema de Optimización Energética </h2>
             <p>Análisis completo de participación y adjudicación de ofertas</p>
         </div>
         
@@ -1047,7 +1049,7 @@ def generar_reporte_consolidado_ofertas(graficas_creadas, output_dir, resultados
             </div>
             <div class="stat-box">
                 <div class="stat-number participantes">{num_participantes}</div>
-                <div class="stat-label">Participaron en </div>
+                <div class="stat-label">Participaron </div>
             </div>
             <div class="stat-box">
                 <div class="stat-number no-participantes">{num_no_participantes}</div>
@@ -1491,7 +1493,7 @@ def crear_grafica_consolidada_ofertas(resultados_dict):
     """Wrapper que llama a la versión simplificada"""
     return crear_grafica_consolidada_ofertas_simplificada(resultados_dict)
 
-def crear_graficas_por_oferta_completo(resultados_dict, output_dir):
+def crear_graficas_por_oferta_completo(resultados_dict, output_dir, archivo_ofertas=None):
     """
     Crea gráficas individuales + consolidada + reporte completo.
     ACTUALIZADO: Pasa resultados_dict al reporte para detectar ofertas no participantes.
@@ -1507,7 +1509,7 @@ def crear_graficas_por_oferta_completo(resultados_dict, output_dir):
     
     # 1. Crear gráficas individuales
     print("  📋 Generando gráficas individuales...")
-    graficas_individuales = crear_graficas_por_oferta(resultados_dict, output_dir)
+    graficas_individuales = crear_graficas_por_oferta(resultados_dict, output_dir, archivo_ofertas)
     resultado['individuales'] = graficas_individuales
     
     # 2. Crear gráfica consolidada
