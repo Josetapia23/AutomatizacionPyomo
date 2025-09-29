@@ -43,7 +43,12 @@ class WorkerThread(QThread):
         try:
             if self.operacion == "flujo_completo":
                 self.progress.emit("🚀 Iniciando flujo completo...")
-                result = self.ejecutar_flujo_con_parametros()
+                result, mensaje = self.ejecutar_flujo_con_parametros()
+                if result:
+                    self.finished.emit(True, mensaje)
+                else:
+                    self.finished.emit(False, mensaje)
+                return
                 
             elif self.operacion == "indexadores":  # 🎯 AGREGAR ESTE CASO
                 self.progress.emit("📊 Iniciando proyección de indexadores...")
@@ -102,15 +107,165 @@ class WorkerThread(QThread):
     
     def ejecutar_flujo_con_parametros(self):
         """Ejecutar el flujo completo usando los parámetros de la interfaz"""
-        # AQUÍ IMPLEMENTAREMOS LA LÓGICA PARA LLAMAR AL PROYECTO EXISTENTE
-        # CON LOS PARÁMETROS QUE EL USUARIO INGRESÓ
-        self.progress.emit("📋 Preparando parámetros...")
-        self.progress.emit("🔧 Ejecutando proyecto con parámetros personalizados...")
-        
-        # Por ahora retornamos True para demostrar que la interfaz funciona
-        import time
-        time.sleep(2)  # Simular procesamiento
-        return True
+        try:
+            # Obtener todos los parámetros
+            crecimiento_str = self.kwargs.get('crecimiento_anual', '')
+            fecha_sicep = self.kwargs.get('fecha_sicep', '')
+            constante_sicep_str = self.kwargs.get('constante_sicep', '')
+            datos_iniciales = self.kwargs.get('archivo_demanda', '')
+            carpeta_ofertas = self.kwargs.get('carpeta_ofertas', '')
+            carpeta_exportacion = self.kwargs.get('carpeta_exportacion', '')
+            
+            # Validaciones rápidas
+            self.progress.emit("🔍 Validando parámetros iniciales...")
+            
+            if not all([crecimiento_str, fecha_sicep, constante_sicep_str, 
+                    datos_iniciales, carpeta_ofertas, carpeta_exportacion]):
+                return False, "Complete todos los campos antes de ejecutar"
+            
+            try:
+                crecimiento = float(crecimiento_str)
+                constante_sicep = float(constante_sicep_str)
+            except ValueError:
+                return False, "Los valores numéricos deben ser válidos"
+            
+            # ========== PASO 1: CREAR PROYECCIÓN DE INDEXADORES ==========
+            self.progress.emit("📊 PASO 1/5: Creando proyección de indexadores...")
+            
+            from core.indexadores import crear_proyeccion_indexadores
+            
+            if not crear_proyeccion_indexadores(
+                datos_iniciales=datos_iniciales,
+                carpeta_ofertas=carpeta_ofertas,
+                crecimiento_anual=crecimiento
+            ):
+                return False, "Error en PASO 1: Proyección de indexadores"
+            
+            self.progress.emit("✅ Proyección de indexadores completada")
+            
+            # ========== PASO 2: CREAR PROYECCIÓN DE PRECIO SICEP ==========
+            self.progress.emit("💰 PASO 2/5: Creando proyección de precio SICEP...")
+            
+            from core.indexadores import crear_proyeccion_precio_sicep
+            
+            if not crear_proyeccion_precio_sicep(
+                datos_iniciales=datos_iniciales,
+                fecha_base_sicep=fecha_sicep
+            ):
+                return False, "Error en PASO 2: Proyección de precio SICEP"
+            
+            self.progress.emit("✅ Proyección de precio SICEP completada")
+            
+            # ========== PASO 3: PROCESAR OFERTAS ==========
+            self.progress.emit("📋 PASO 3/5: Procesando ofertas...")
+            
+            from core.ofertas_optimizado import procesar_ofertas_optimizado_corregido
+            
+            archivo_salida = os.path.join(carpeta_exportacion, 'resultado_ofertas.xlsx')
+            
+            if not procesar_ofertas_optimizado_corregido(
+                carpeta_ofertas=carpeta_ofertas,
+                datos_iniciales=datos_iniciales,
+                archivo_salida=archivo_salida,
+                constante_sicep=constante_sicep
+            ):
+                return False, "Error en PASO 3: Procesamiento de ofertas"
+            
+            self.progress.emit("✅ Procesamiento de ofertas completado")
+            
+            # ========== PASO 4: OPTIMIZAR CON PYOMO ==========
+            self.progress.emit("⚡ PASO 4/5: Optimizando con Pyomo...")
+            
+            from core.evaluacion import leer_ofertas_evaluadas
+            from optimizacion.modelo import construir_modelo, extraer_resultados
+            from optimizacion.solver import resolver_modelo
+            from main import leer_demanda
+            
+            # Leer demanda
+            demanda_df = leer_demanda(archivo=datos_iniciales, hoja="DEMANDA")
+            if demanda_df is None or demanda_df.empty:
+                return False, "Error leyendo datos de demanda"
+            
+            # Leer ofertas
+            archivo_ofertas = os.path.join(carpeta_exportacion, 'resultado_ofertas.xlsx')
+            ofertas_df = leer_ofertas_evaluadas(archivo_ofertas, solo_validas=True)
+            if ofertas_df.empty:
+                return False, "No hay ofertas válidas para optimización"
+            
+            ofertas_df_completas = leer_ofertas_evaluadas(archivo_ofertas, solo_validas=False)
+            
+            # Construir modelo
+            model = construir_modelo(demanda_df, ofertas_df)
+            if model is None:
+                return False, "Error construyendo modelo de optimización"
+            
+            # Resolver
+            result = resolver_modelo(model)
+            
+            # Extraer resultados
+            resultados_dict = extraer_resultados(model, ofertas_df_completas)
+            if not resultados_dict:
+                return False, "Error extrayendo resultados"
+            
+            # Exportar resultados
+            from core.evaluacion import exportar_resultados_por_oferta
+            
+            archivo_base = os.path.join(carpeta_exportacion, 'resultado_ofertas.xlsx')
+            
+            if not exportar_resultados_por_oferta(resultados_dict, archivo_base):
+                return False, "Error exportando resultados de optimización"
+            
+            self.progress.emit("✅ Optimización completada")
+            
+            # ========== PASO 5: GENERAR VISUALIZACIONES ==========
+            self.progress.emit("📊 PASO 5/5: Generando visualizaciones...")
+            
+            from core.visualizaciones import generar_reporte_completo
+            from core.evaluacion import cargar_resultados_desde_excel
+            
+            # Cambiar temporalmente la ruta en config
+            import config
+            ruta_original = getattr(config, 'RESULTADO_OFERTAS', None)
+            config.RESULTADO_OFERTAS = archivo_ofertas
+            
+            try:
+                # Recargar resultados para visualizaciones completas
+                resultados_para_graficas = cargar_resultados_desde_excel(archivo_ofertas)
+                
+                if resultados_para_graficas:
+                    if generar_reporte_completo(resultados_para_graficas, ofertas_df_completas, archivo_ofertas):
+                        self.progress.emit("✅ Visualizaciones generadas")
+                    else:
+                        self.progress.emit("⚠️ Error en visualizaciones (continuando)")
+            finally:
+                # Restaurar ruta original
+                if ruta_original:
+                    config.RESULTADO_OFERTAS = ruta_original
+            
+            # ========== RESUMEN FINAL ==========
+            from pathlib import Path
+            output_dir = Path(carpeta_exportacion)
+            vis_dir = output_dir / "visualizaciones"
+            
+            mensaje_final = "🎉 Flujo completo ejecutado exitosamente!\n\n"
+            mensaje_final += "✅ Todos los pasos completados:\n"
+            mensaje_final += "  1. ✅ Proyección de indexadores\n"
+            mensaje_final += "  2. ✅ Proyección de precio SICEP\n"
+            mensaje_final += "  3. ✅ Procesamiento de ofertas\n"
+            mensaje_final += "  4. ✅ Optimización con Pyomo\n"
+            mensaje_final += "  5. ✅ Generación de visualizaciones\n\n"
+            mensaje_final += f"📁 Resultados guardados en:\n{carpeta_exportacion}\n\n"
+            mensaje_final += f"📊 Ofertas procesadas: {len(ofertas_df_completas)}\n"
+            mensaje_final += f"⚡ Ofertas optimizadas: {len(ofertas_df)}\n"
+            mensaje_final += f"🌐 Visualizaciones: {vis_dir}/reporte_consolidado.html"
+            
+            return True, mensaje_final
+            
+        except Exception as e:
+            import traceback
+            error_msg = f"Error en flujo completo: {str(e)}\n\n"
+            error_msg += "Traceback:\n" + traceback.format_exc()
+            return False, error_msg
     
     def validar_todos_los_campos(self):
         """Validar que todos los campos estén llenos correctamente"""
