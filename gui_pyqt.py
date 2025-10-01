@@ -696,7 +696,7 @@ class WorkerThread(QThread):
 class OptimizacionPyQtGUICompleta(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Optimización Selección de Ofertas de Compra - INTERFAZ COMPLETA")
+        self.setWindowTitle("Optimización - INTERFAZ COMPLETA")
         self.setGeometry(100, 100, 1400, 850)  # Más grande para acomodar todos los campos
         
         # Variables para TODOS los campos de entrada
@@ -919,7 +919,7 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
         central_widget.setLayout(main_layout)
         
         # ==================== TÍTULO ====================
-        titulo = QLabel("Optimización selección de ofertas de compra")
+        titulo = QLabel("OPTIMIZACIÓN ENERGÉTICA")
         titulo.setObjectName("titulo")
         titulo.setAlignment(Qt.AlignCenter)
         main_layout.addWidget(titulo)
