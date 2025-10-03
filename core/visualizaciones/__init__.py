@@ -1,6 +1,6 @@
 """
 Módulo de visualizaciones para el sistema de optimización energética.
-FUSIONADO: Incluye todas las gráficas existentes + nuevas gráficas por oferta + tabla energía faltante horaria.
+FUSIONADO: Incluye todas las gráficas existentes + nuevas gráficas por oferta + tabla energía faltante horaria + tablas resumen anual.
 """
 
 # Importar función principal de reportes (FUSIONADA)
@@ -28,6 +28,15 @@ from .por_oferta import (
     generar_reporte_consolidado_ofertas,
     crear_grafica_consolidada_ofertas,        
     crear_graficas_por_oferta_completo        
+)
+
+# 🆕 NUEVO: Importar funciones de tablas resumen anual
+from .tablas_anuales import (
+    generar_tablas_resumen_anual,
+    extraer_datos_mensuales,
+    calcular_tablas_resumen,
+    crear_figura_tabla_individual,
+    crear_html_con_scroll_individual
 )
 
 # Función de compatibilidad para main.py (ACTUALIZADA)
@@ -69,5 +78,12 @@ __all__ = [
     'extraer_datos_para_grafica_oferta',
     'generar_reporte_consolidado_ofertas',
     'crear_grafica_consolidada_ofertas',
-    'crear_graficas_por_oferta_completo'
+    'crear_graficas_por_oferta_completo',
+    
+    
+    'generar_tablas_resumen_anual',
+    'extraer_datos_mensuales',
+    'calcular_tablas_resumen',
+    'crear_figura_tabla_individual',
+    'crear_html_con_scroll_individual'
 ]

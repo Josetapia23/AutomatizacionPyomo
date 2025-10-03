@@ -27,6 +27,7 @@ from .por_oferta import (  # 🆕 NUEVO MÓDULO AGREGADO
     generar_reporte_consolidado_ofertas
 )
 from .utils import ensure_directory_exists, format_number
+from .tablas_anuales import generar_tablas_resumen_anual
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
         errores_encontrados = []
         
         # 1. Gráfica Principal: Energía Asignada y No Asignada
-        print("🔹 [1/8] Creando gráfica principal de energía asignada...")
+        print("🔹 [1/9] Creando gráfica principal de energía asignada...")
         graficas_totales += 1
         try:
             fig_principal = crear_grafica_principal_energia_asignada(resultados_dict, ofertas_df)
@@ -78,7 +79,7 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
             logger.error(f"Error en gráfica principal: {e}")
         
         # 2. Gráfica de Resumen General
-        print("🔹 [2/8] Creando gráfica de resumen general...")
+        print("🔹 [2/9] Creando gráfica de resumen general...")
         graficas_totales += 1
         try:
             fig_resumen = crear_grafica_resumen_general(resultados_dict)
@@ -97,7 +98,7 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
             logger.error(f"Error en gráfica de resumen: {e}")
         
         # 3. Gráfica de Torta
-        print("🔹 [3/8] Creando gráfica de torta de adjudicación...")
+        print("🔹 [3/9] Creando gráfica de torta de adjudicación...")
         graficas_totales += 1
         try:
             fig_torta = crear_grafica_torta_adjudicacion(resultados_dict)
@@ -116,7 +117,7 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
             logger.error(f"Error en gráfica de torta: {e}")
         
         # 4. Mapa de Calor Mensual
-        print("🔹 [4/8] Creando mapa de calor mensual...")
+        print("🔹 [4/9] Creando mapa de calor mensual...")
         graficas_totales += 1
         try:
             fig_mapa_calor = crear_mapa_calor_mensual(resultados_dict)
@@ -135,7 +136,7 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
             logger.error(f"Error en mapa de calor mensual: {e}")
 
         # 5. Tabla de Energía Faltante Horaria (RENUMERADA)
-        print("🔹 [5/8] Creando tabla de energía faltante horaria...")
+        print("🔹 [5/9] Creando tabla de energía faltante horaria...")
         graficas_totales += 1
         try:
             fig_energia_horaria = crear_tabla_energia_faltante_horaria(resultados_dict)
@@ -154,7 +155,7 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
             logger.error(f"Error en tabla de energía faltante horaria: {e}")
 
         # 6. Tabla de Energía Faltante MW Promedio (RENUMERADA)
-        print("🔹 [6/8] Creando tabla de energía faltante MW promedio...")
+        print("🔹 [6/9] Creando tabla de energía faltante MW promedio...")
         graficas_totales += 1
         try:
             fig_energia_mw = crear_tabla_energia_faltante_mw_promedio(resultados_dict)
@@ -173,7 +174,7 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
             logger.error(f"Error en tabla MW promedio: {e}")
 
         # 7. Gráfica de Energía por Años (RENUMERADA)
-        print("🔹 [7/8] Creando gráfica de energía por años...")
+        print("🔹 [7/9] Creando gráfica de energía por años...")
         graficas_totales += 1
         try:
             fig_energia_anos = crear_grafica_energia_por_anos(resultados_dict, ofertas_df)
@@ -192,7 +193,7 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
             logger.error(f"Error en gráfica anual: {e}")
         
         # 8. Gráficas por Oferta (Individuales + Consolidada) (RENUMERADA)
-        print("🔹 [8/8] Creando gráficas por oferta (individuales + consolidada)...")
+        print("🔹 [8/9] Creando gráficas por oferta (individuales + consolidada)...")
         graficas_totales += 1
         resultado_ofertas = {}
         try:
@@ -221,6 +222,24 @@ def generar_reporte_completo_mejorado(resultados_dict, ofertas_df, archivo_salid
             print(f"  ❌ FALLO: {str(e)[:60]}...")
             errores_encontrados.append(f"Ofertas: {e}")
             logger.error(f"Error en gráficas por oferta: {e}")
+            
+        # 9. Tablas Resumen Anual (NUEVAS FUNCIONES)
+        print("🔹 [9/9] Creando tablas de resumen anual...")
+        graficas_totales += 1
+        try:
+            archivo_tablas = generar_tablas_resumen_anual(resultados_dict, output_dir)
+            if archivo_tablas:
+                print(f"  ✅ ÉXITO: {archivo_tablas.name}")
+                archivos_generados.append("09_tablas_resumen_anual.html")
+                graficas_exitosas += 1
+            else:
+                print("  ❌ FALLO: No se pudieron crear las tablas")
+                errores_encontrados.append("Tablas anuales: Sin datos válidos")
+        except Exception as e:
+            print(f"  ❌ FALLO: {str(e)[:60]}...")
+            errores_encontrados.append(f"Tablas anuales: {e}")
+            logger.error(f"Error en tablas de resumen anual: {e}")
+
 
         # 9. Reporte HTML Consolidado
         print("🔹 [+] Creando reporte HTML consolidado...")
