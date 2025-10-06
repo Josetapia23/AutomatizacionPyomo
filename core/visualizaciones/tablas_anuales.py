@@ -392,16 +392,7 @@ def crear_tabla_plotly(titulo, datos_tabla, ofertas, incluir_totales=False, form
 def generar_tabla_html(titulo, datos_tabla, ofertas, incluir_totales=False, formato='dinero'):
     """
     Genera una tabla HTML pura con scroll y columnas/filas fijas.
-    
-    Args:
-        titulo (str): Título de la tabla
-        datos_tabla (dict): Datos de la tabla
-        ofertas (list): Lista de ofertas
-        incluir_totales (bool): Si incluir fila de totales
-        formato (str): Formato de valores
-        
-    Returns:
-        str: HTML de la tabla
+    ACTUALIZADO: Filtra filas vacías y muestra total único.
     """
     fechas = datos_tabla['fechas']
     datos = datos_tabla['datos']
@@ -409,11 +400,25 @@ def generar_tabla_html(titulo, datos_tabla, ofertas, incluir_totales=False, form
     # Preparar encabezados con nombres acortados
     headers_ofertas = [acortar_nombre_oferta(oferta) for oferta in ofertas]
     
+    # Filtrar fechas que tienen al menos un valor
+    fechas_con_datos = []
+    for fecha in fechas:
+        tiene_datos = False
+        for oferta in ofertas:
+            valor = datos[fecha][oferta]
+            if valor != 0 and abs(valor) >= 0.01:
+                tiene_datos = True
+                break
+        if tiene_datos:
+            fechas_con_datos.append(fecha)
+    
+    print(f"   📅 Fechas filtradas: {len(fechas)} → {len(fechas_con_datos)} (con datos)")
+    
     # Iniciar HTML de la tabla
     filas_html = []
     
-    # Generar filas de datos
-    for fecha in fechas:
+    # Generar filas de datos (solo fechas con datos)
+    for fecha in fechas_con_datos:
         celdas = [f'<td class="fecha-col">{fecha}</td>']
         
         for oferta in ofertas:
@@ -436,21 +441,26 @@ def generar_tabla_html(titulo, datos_tabla, ofertas, incluir_totales=False, form
         
         filas_html.append(f'<tr>{"".join(celdas)}</tr>')
     
-    # Agregar fila de totales si corresponde
+    # Agregar fila de TOTAL ÚNICO si corresponde
     if incluir_totales and 'totales' in datos_tabla:
-        celdas_total = ['<td class="fecha-col total-row"><strong>TOTAL</strong></td>']
+        # Calcular el gran total sumando todos los totales por oferta
+        gran_total = sum(datos_tabla['totales'].values())
         
-        for oferta in ofertas:
-            total = datos_tabla['totales'][oferta]
-            if total == 0 or abs(total) < 0.01:
-                valor_formateado = "-"
-            else:
-                if formato == 'dinero':
-                    valor_formateado = f"${total:,.2f}"
-                else:
-                    valor_formateado = f"{total:.2f}"
-            
-            celdas_total.append(f'<td class="dato-col total-row"><strong>{valor_formateado}</strong></td>')
+        if formato == 'dinero':
+            total_formateado = f"${gran_total:,.2f}"
+        else:
+            total_formateado = f"{gran_total:.2f}"
+        
+        # Fila de total: primera celda con "TOTAL", última celda con el valor, resto vacías
+        num_columnas = len(ofertas) + 1  # +1 por la columna de fechas
+        celdas_total = [
+            '<td class="fecha-col total-row"><strong>TOTAL</strong></td>'
+        ]
+        # Celdas vacías para todas las ofertas menos la última
+        for i in range(len(ofertas) - 1):
+            celdas_total.append('<td class="dato-col total-row"></td>')
+        # Última celda con el gran total
+        celdas_total.append(f'<td class="dato-col total-row total-final"><strong>{total_formateado}</strong></td>')
         
         filas_html.append(f'<tr>{"".join(celdas_total)}</tr>')
     
@@ -474,7 +484,6 @@ def generar_tabla_html(titulo, datos_tabla, ofertas, incluir_totales=False, form
     '''
     
     return tabla_html
-
 
 def crear_html_con_scroll_individual(fig1, fig2, fig3, fig4):
     """
@@ -687,6 +696,14 @@ def generar_tablas_resumen_anual(resultados_dict, output_dir):
             font-weight: bold;
         }}
         
+        /* Celda de total final */
+        .total-final {{
+            background-color: #ffc107 !important;
+            color: #000;
+            font-size: 13px;
+            text-align: right !important;
+        }}
+        
         /* Scrollbar personalizado */
         .tabla-scroll-container::-webkit-scrollbar {{
             height: 12px;
@@ -754,7 +771,6 @@ def generar_tablas_resumen_anual(resultados_dict, output_dir):
     
     <div class="nota">
         <strong>Nota:</strong> Función Objetivo en unidades de millones. Cantidades en GWh. Precios en $/kWh.
-        <br>Scroll horizontal: La primera columna (fechas) permanece fija. Scroll vertical: Los encabezados permanecen fijos.
     </div>
 </body>
 </html>

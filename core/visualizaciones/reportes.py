@@ -413,6 +413,8 @@ def crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, result
                 <a href="#avanzadas" class="nav-button">🔬 Análisis Avanzados</a>
                 <a href="#consolidada" class="nav-button">🎯 Consolidado Ofertas</a>
                 <a href="reporte_ofertas.html" class="nav-button" target="_blank">📋 Análisis por Ofertas</a>
+                <a href="09_tablas_resumen_anual.html" class="nav-button" target="_blank">📊 FUNCIÓN OBJETIVO</a>
+
             </div>
         """
         
@@ -564,37 +566,57 @@ def crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, result
             """
         
         # SECCIÓN: Análisis Individual por Ofertas
-        if graficas_individuales:
-            html_content += f"""
-            <div id="ofertas">
-                <h2 style="color: #1f4e79; border-bottom: 2px solid #1f4e79; padding-bottom: 10px;">
-                    📋 ANÁLISIS INDIVIDUAL POR OFERTAS
-                </h2>
-                
-                <div class="ofertas-section">
-                    <h3>🔍 Análisis Detallado por Oferta Individual</h3>
-                    <p>Se procesaron <strong>{len(graficas_individuales)} ofertas individuales</strong> con gráficas detalladas.</p>
-                    <p><strong>Haga clic en el botón para ver el reporte completo de ofertas:</strong></p>
+        
+        if graficas_individuales:      
+            html_content += """
+                <div id="tablas-anuales">
+                    <h2 style="color: #1f4e79; border-bottom: 2px solid #1f4e79; padding-bottom: 10px;">
+                        📊 ANÁLISIS INDIVIDUAL POR OFERTAS
+                    </h2>
                     
-                    <div style="text-align: center; margin: 20px 0;">
-                        <a href="reporte_ofertas.html" class="oferta-link consolidada-button" target="_blank">
-                            📊 VER REPORTE COMPLETO DE OFERTAS ({len(graficas_individuales)} ofertas)
-                        </a>
-                    </div>
-                    
-                    <div style="background-color: white; padding: 15px; border-radius: 5px; margin-top: 15px;">
-                        <h4 style="color: #1f4e79; margin-top: 0;">💡 El reporte de ofertas incluye:</h4>
-                        <ul style="color: #666; font-size: 13px;">
-                            <li><strong>Gráficas individuales:</strong> Análisis específico de cada oferta</li>
-                            <li><strong>Navegación fácil:</strong> Botones para alternar entre ofertas</li>
-                            <li><strong>Datos detallados:</strong> Energía asignada, precios y evolución temporal</li>
-                            <li><strong>Comparación visual:</strong> Barras y líneas para análisis completo</li>
-                        </ul>
+                    <div style="padding: 20px; background-color: #e8f4f8;">
+                        <h3 style="margin-top: 0;">🔍 Análisis Detallado por Oferta Individual</h3>
+                        <p>Se procesaron <strong>22 ofertas individuales</strong> con gráficas detalladas.</p>
+                        <p><strong>Haga clic en el botón para ver el reporte completo de ofertas:</strong></p>
+                        
+                        <div style="text-align: center; margin: 20px 0;">
+                            <a href="reporte_ofertas.html" class="nav-button" target="_blank" 
+                            style="display: inline-block; font-size: 16px;">
+                                📊 VER REPORTE COMPLETO DE OFERTAS (22 ofertas)
+                            </a>
+                        </div>
+                        
+                        <div style="margin-top: 20px; padding: 15px; background-color: white; border-left: 4px solid #1f4e79; border-radius: 4px;">
+                            <h4 style="margin-top: 0; color: #1f4e79;">ℹ️ El reporte de ofertas incluye:</h4>
+                            <ul style="color: #666; font-size: 13px; margin-bottom: 0;">
+                                <li><strong>Gráficas individuales:</strong> Análisis específico de cada oferta</li>
+                                <li><strong>Navegación fácil:</strong> Botones para alternar entre ofertas</li>
+                                <li><strong>Datos detallados:</strong> Energía asignada, precios y evolución temporal</li>
+                                <li><strong>Comparación visual:</strong> Barras y líneas para análisis completo</li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
-            </div>
-            """
-        
+
+                <div id="tablas-resumen" style="margin-top: 40px;">
+                    <h2 style="color: #1f4e79; border-bottom: 2px solid #1f4e79; padding-bottom: 10px;">
+                        📊 TABLAS DE RESUMEN ANUAL
+                    </h2>
+                    
+                    <div style="padding: 20px; background-color: #fff9e6;">
+                        <h3 style="margin-top: 0;">📋 Tablas de Resumen Anual</h3>
+                        <p>Visualice el resumen consolidado por mes/año con función objetivo, cantidades y precios en formato de tabla interactiva.</p>
+                        
+                        <div style="text-align: center; margin: 20px 0;">
+                            <a href="09_tablas_resumen_anual.html" class="nav-button" target="_blank" 
+                            style="display: inline-block; font-size: 16px; background-color: #28a745;">
+                                📊 VER TABLAS RESUMEN ANUAL
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                """
+            
         # Cerrar HTML y agregar scripts
         html_content += f"""
             <div class="timestamp">

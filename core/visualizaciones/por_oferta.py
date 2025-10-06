@@ -325,7 +325,7 @@ def crear_grafica_oferta_no_participante(nombre_oferta, datos_originales):
     # Crear figura con eje secundario
     fig = make_subplots(
         specs=[[{"secondary_y": True}]],
-        subplot_titles=[f"DEMANDA ASIGNADA Y NO ASIGNADA GWh - {nombre_oferta}"]
+        subplot_titles=[f"DEMANDA NO ASIGNADA GWh - {nombre_oferta}"]
     )
     
     # Barras asignada (siempre 0 para no participantes)
@@ -447,7 +447,7 @@ def crear_grafica_oferta_no_participante(nombre_oferta, datos_originales):
     
     fig.update_layout(
         title={
-            'text': f"DEMANDA ASIGNADA Y NO ASIGNADA GWh - {nombre_oferta}",
+            'text': f"DEMANDA NO ASIGNADA GWh - {nombre_oferta}",
             'x': 0.5,
             'xanchor': 'center',
             'font': {'size': 16, 'color': '#1f4e79', 'family': 'Arial Black'}
@@ -1099,7 +1099,7 @@ def generar_reporte_consolidado_ofertas(graficas_creadas, output_dir, resultados
             <h2 class="section-title">❌ Ofertas No Participantes ({num_no_participantes})</h2>
             <p class="section-description">
                 Estas ofertas estaban disponibles en el sistema pero no participaron en el 
-                proceso de optimización Pyomo. Se muestra su capacidad como "no utilizada".
+                proceso de optimización. Se muestra su capacidad como "no utilizada".
             </p>
         </div>
         
