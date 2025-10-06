@@ -26,8 +26,8 @@ from .por_oferta import (
     crear_grafica_oferta_individual,
     extraer_datos_para_grafica_oferta,
     generar_reporte_consolidado_ofertas,
-    crear_grafica_consolidada_ofertas,        
-    crear_graficas_por_oferta_completo        
+    crear_grafica_consolidada_ofertas,
+    crear_graficas_por_oferta_completo
 )
 
 # 🆕 NUEVO: Importar funciones de tablas resumen anual
@@ -35,8 +35,7 @@ from .tablas_anuales import (
     generar_tablas_resumen_anual,
     extraer_datos_mensuales,
     calcular_tablas_resumen,
-    crear_figura_tabla_individual,
-    crear_html_con_scroll_individual
+    generar_tabla_html  # Esta es la nueva función que creamos
 )
 
 # Función de compatibilidad para main.py (ACTUALIZADA)
@@ -70,7 +69,7 @@ __all__ = [
     # 🔬 GRÁFICAS AVANZADAS
     'crear_mapa_calor_mensual',
     'crear_distribucion_por_agente',
-    'crear_tabla_energia_faltante_horaria',  
+    'crear_tabla_energia_faltante_horaria',
     
     # 🆕 GRÁFICAS POR OFERTA (NUEVAS FUNCIONES)
     'crear_graficas_por_oferta',
@@ -80,10 +79,9 @@ __all__ = [
     'crear_grafica_consolidada_ofertas',
     'crear_graficas_por_oferta_completo',
     
-    
+    # 🆕 TABLAS RESUMEN ANUAL
     'generar_tablas_resumen_anual',
     'extraer_datos_mensuales',
     'calcular_tablas_resumen',
-    'crear_figura_tabla_individual',
-    'crear_html_con_scroll_individual'
+    'generar_tabla_html'
 ]

@@ -389,9 +389,9 @@ def crear_tabla_plotly(titulo, datos_tabla, ofertas, incluir_totales=False, form
     
     return tabla
 
-def crear_figura_tabla_individual(titulo, datos_tabla, ofertas, incluir_totales=False, formato='dinero'):
+def generar_tabla_html(titulo, datos_tabla, ofertas, incluir_totales=False, formato='dinero'):
     """
-    Crea una figura individual de Plotly para una tabla.
+    Genera una tabla HTML pura con scroll y columnas/filas fijas.
     
     Args:
         titulo (str): Título de la tabla
@@ -401,164 +401,100 @@ def crear_figura_tabla_individual(titulo, datos_tabla, ofertas, incluir_totales=
         formato (str): Formato de valores
         
     Returns:
-        go.Figure: Figura de Plotly
+        str: HTML de la tabla
     """
-    # Crear la tabla usando la función existente
-    tabla = crear_tabla_plotly(titulo, datos_tabla, ofertas, incluir_totales, formato)
+    fechas = datos_tabla['fechas']
+    datos = datos_tabla['datos']
     
-    # Crear figura con la tabla
-    fig = go.Figure(data=[tabla])
+    # Preparar encabezados con nombres acortados
+    headers_ofertas = [acortar_nombre_oferta(oferta) for oferta in ofertas]
     
-    # Calcular ancho necesario (sin límite para permitir scroll)
-    num_ofertas = len(ofertas)
-    ancho_fecha = 100
-    ancho_oferta = 120  # Ancho fijo generoso para cada oferta
-    ancho_total = ancho_fecha + (ancho_oferta * num_ofertas)
+    # Iniciar HTML de la tabla
+    filas_html = []
     
-    # Configurar layout
-    fig.update_layout(
-        title={
-            'text': f'<b>{titulo}</b>',
-            'x': 0.5,
-            'xanchor': 'center',
-            'font': {'size': 16, 'color': '#1f4e79', 'family': 'Arial'}
-        },
-        height=600,
-        width=ancho_total,  # Ancho sin restricción
-        showlegend=False,
-        margin=dict(t=60, b=20, l=10, r=10),
-        paper_bgcolor='white'
-    )
+    # Generar filas de datos
+    for fecha in fechas:
+        celdas = [f'<td class="fecha-col">{fecha}</td>']
+        
+        for oferta in ofertas:
+            valor = datos[fecha][oferta]
+            
+            # Formatear valor
+            if valor == 0 or abs(valor) < 0.01:
+                valor_formateado = "-"
+            else:
+                if formato == 'dinero':
+                    valor_formateado = f"${valor:,.2f}"
+                elif formato == 'gwh':
+                    valor_formateado = f"{valor:.2f}"
+                elif formato == 'precio':
+                    valor_formateado = f"${valor:.2f}"
+                else:
+                    valor_formateado = f"{valor:.2f}"
+            
+            celdas.append(f'<td class="dato-col">{valor_formateado}</td>')
+        
+        filas_html.append(f'<tr>{"".join(celdas)}</tr>')
     
-    return fig
+    # Agregar fila de totales si corresponde
+    if incluir_totales and 'totales' in datos_tabla:
+        celdas_total = ['<td class="fecha-col total-row"><strong>TOTAL</strong></td>']
+        
+        for oferta in ofertas:
+            total = datos_tabla['totales'][oferta]
+            if total == 0 or abs(total) < 0.01:
+                valor_formateado = "-"
+            else:
+                if formato == 'dinero':
+                    valor_formateado = f"${total:,.2f}"
+                else:
+                    valor_formateado = f"{total:.2f}"
+            
+            celdas_total.append(f'<td class="dato-col total-row"><strong>{valor_formateado}</strong></td>')
+        
+        filas_html.append(f'<tr>{"".join(celdas_total)}</tr>')
+    
+    # Construir encabezados de columna
+    headers_html = '<th class="fecha-col">MES/AÑO</th>'
+    for header in headers_ofertas:
+        headers_html += f'<th class="dato-col">{header}</th>'
+    
+    # Construir tabla completa
+    tabla_html = f'''
+    <div class="tabla-scroll-container">
+        <table class="tabla-datos">
+            <thead>
+                <tr>{headers_html}</tr>
+            </thead>
+            <tbody>
+                {"".join(filas_html)}
+            </tbody>
+        </table>
+    </div>
+    '''
+    
+    return tabla_html
+
 
 def crear_html_con_scroll_individual(fig1, fig2, fig3, fig4):
     """
-    Crea HTML personalizado con cada tabla en un contenedor con scroll horizontal.
+    Crea HTML personalizado con tablas HTML puras que tienen scroll horizontal
+    con primera columna y primera fila fijas.
     
     Args:
-        fig1, fig2, fig3, fig4: Figuras de Plotly
+        fig1, fig2, fig3, fig4: No se usan, solo por compatibilidad
         
     Returns:
         str: Contenido HTML completo
     """
-    # Convertir figuras a HTML
-    html1 = pyo.plot(fig1, output_type='div', include_plotlyjs='cdn')
-    html2 = pyo.plot(fig2, output_type='div', include_plotlyjs=False)
-    html3 = pyo.plot(fig3, output_type='div', include_plotlyjs=False)
-    html4 = pyo.plot(fig4, output_type='div', include_plotlyjs=False)
-    
-    # Crear HTML completo con estructura de grid 2x2
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <title>Resumen Anual de Optimización Energética</title>
-        <style>
-            body {{
-                font-family: Arial, sans-serif;
-                margin: 0;
-                padding: 20px;
-                background-color: #f8f9fa;
-            }}
-            
-            .header {{
-                text-align: center;
-                color: #1f4e79;
-                margin-bottom: 30px;
-            }}
-            
-            .grid-container {{
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 20px;
-                max-width: 100%;
-            }}
-            
-            .table-container {{
-                background: white;
-                border-radius: 8px;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                padding: 15px;
-                overflow-x: auto;  /* Scroll horizontal individual */
-                overflow-y: auto;  /* Scroll vertical individual */
-                max-height: 650px;
-            }}
-            
-            .table-container::-webkit-scrollbar {{
-                height: 12px;
-                width: 12px;
-            }}
-            
-            .table-container::-webkit-scrollbar-track {{
-                background: #f1f1f1;
-                border-radius: 10px;
-            }}
-            
-            .table-container::-webkit-scrollbar-thumb {{
-                background: #888;
-                border-radius: 10px;
-            }}
-            
-            .table-container::-webkit-scrollbar-thumb:hover {{
-                background: #555;
-            }}
-            
-            .nota {{
-                text-align: center;
-                margin-top: 30px;
-                padding: 15px;
-                background-color: #fff3cd;
-                border: 1px solid #ffc107;
-                border-radius: 5px;
-                color: #856404;
-                font-size: 14px;
-            }}
-            
-            @media (max-width: 1200px) {{
-                .grid-container {{
-                    grid-template-columns: 1fr;
-                }}
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <h1>📈 RESUMEN ANUAL DE OPTIMIZACIÓN ENERGÉTICA</h1>
-        </div>
-        
-        <div class="grid-container">
-            <div class="table-container">
-                {html1}
-            </div>
-            
-            <div class="table-container">
-                {html2}
-            </div>
-            
-            <div class="table-container">
-                {html3}
-            </div>
-            
-            <div class="table-container">
-                {html4}
-            </div>
-        </div>
-        
-        <div class="nota">
-            <strong>Nota:</strong> Función Objetivo en unidades de millones. Cantidades en GWh. Precios en $/kWh.
-            <br>Use el scroll horizontal en cada tabla para ver todas las ofertas.
-        </div>
-    </body>
-    </html>
-    """
-    
-    return html_content
+    # Las figuras de Plotly ya no se usan, se pasan por compatibilidad pero no se utilizan
+    # En su lugar generaremos tablas HTML directamente
+    return None  # Esta función se reemplaza completamente abajo
+
 
 def generar_tablas_resumen_anual(resultados_dict, output_dir):
     """
-    Función principal que genera las 4 tablas de resumen anual con scroll horizontal individual.
+    Función principal que genera las 4 tablas de resumen anual con HTML puro.
     
     Args:
         resultados_dict (dict): Diccionario con resultados de optimización
@@ -585,11 +521,12 @@ def generar_tablas_resumen_anual(resultados_dict, output_dir):
             logger.error("No se pudieron calcular las tablas")
             return None
         
-        # Paso 3: Crear las 4 figuras individuales
         ofertas = tablas['tabla_funcion_objetivo']['ofertas']
         
-        # Crear cada tabla como figura individual
-        fig1 = crear_figura_tabla_individual(
+        # Paso 3: Generar HTML de cada tabla
+        print(f"\n🎨 Generando tablas HTML...")
+        
+        html_tabla1 = generar_tabla_html(
             'FUNCIÓN OBJETIVO',
             tablas['tabla_funcion_objetivo'],
             ofertas,
@@ -597,7 +534,7 @@ def generar_tablas_resumen_anual(resultados_dict, output_dir):
             formato='dinero'
         )
         
-        fig2 = crear_figura_tabla_individual(
+        html_tabla2 = generar_tabla_html(
             'CANTIDADES GWh-año',
             tablas['tabla_cantidades'],
             ofertas,
@@ -605,7 +542,7 @@ def generar_tablas_resumen_anual(resultados_dict, output_dir):
             formato='gwh'
         )
         
-        fig3 = crear_figura_tabla_individual(
+        html_tabla3 = generar_tabla_html(
             'PRECIO INDEXADO ($/kWh)',
             tablas['tabla_precio_indexado'],
             ofertas,
@@ -613,7 +550,7 @@ def generar_tablas_resumen_anual(resultados_dict, output_dir):
             formato='precio'
         )
         
-        fig4 = crear_figura_tabla_individual(
+        html_tabla4 = generar_tabla_html(
             'PRECIO NO INDEXADO ($/kWh)',
             tablas['tabla_precio_no_indexado'],
             ofertas,
@@ -621,8 +558,207 @@ def generar_tablas_resumen_anual(resultados_dict, output_dir):
             formato='precio'
         )
         
-        # Paso 4: Generar HTML personalizado con scroll por tabla
-        html_content = crear_html_con_scroll_individual(fig1, fig2, fig3, fig4)
+        # Paso 4: Crear HTML completo
+        html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Resumen Anual de Optimización Energética</title>
+    <style>
+        * {{
+            box-sizing: border-box;
+        }}
+        
+        body {{
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }}
+        
+        .header {{
+            text-align: center;
+            color: #1f4e79;
+            margin-bottom: 30px;
+            position: sticky;
+            top: 0;
+            background-color: #f8f9fa;
+            z-index: 200;
+            padding: 15px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        
+        .header h1 {{
+            margin: 0;
+        }}
+        
+        .grid-container {{
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 25px;
+            max-width: 100%;
+        }}
+        
+        .table-wrapper {{
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 0;
+            overflow: hidden;
+        }}
+        
+        .table-title {{
+            background: #1f4e79;
+            color: white;
+            padding: 15px;
+            margin: 0;
+            font-size: 16px;
+            font-weight: bold;
+            text-align: center;
+            position: sticky;
+            top: 0;
+            z-index: 150;
+        }}
+        
+        .tabla-scroll-container {{
+            overflow: auto;
+            max-height: 500px;
+            position: relative;
+        }}
+        
+        .tabla-datos {{
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 11px;
+        }}
+        
+        .tabla-datos thead {{
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }}
+        
+        .tabla-datos th {{
+            background-color: #1f4e79;
+            color: white;
+            padding: 12px 8px;
+            text-align: center;
+            font-weight: bold;
+            border: 1px solid #ddd;
+            white-space: nowrap;
+        }}
+        
+        .tabla-datos td {{
+            padding: 10px 8px;
+            border: 1px solid #ddd;
+            text-align: right;
+        }}
+        
+        .tabla-datos tbody tr:nth-child(even) {{
+            background-color: #f9f9f9;
+        }}
+        
+        .tabla-datos tbody tr:hover {{
+            background-color: #e8f4f8;
+        }}
+        
+        /* Primera columna fija (fechas) */
+        .fecha-col {{
+            position: sticky;
+            left: 0;
+            background-color: #e8e8e8;
+            z-index: 50;
+            text-align: left !important;
+            font-weight: 500;
+            min-width: 100px;
+            box-shadow: 2px 0 4px rgba(0,0,0,0.1);
+        }}
+        
+        thead .fecha-col {{
+            background-color: #1f4e79;
+            z-index: 110;
+        }}
+        
+        /* Fila de totales */
+        .total-row {{
+            background-color: #fff3cd !important;
+            font-weight: bold;
+        }}
+        
+        /* Scrollbar personalizado */
+        .tabla-scroll-container::-webkit-scrollbar {{
+            height: 12px;
+            width: 12px;
+        }}
+        
+        .tabla-scroll-container::-webkit-scrollbar-track {{
+            background: #f1f1f1;
+            border-radius: 10px;
+        }}
+        
+        .tabla-scroll-container::-webkit-scrollbar-thumb {{
+            background: #888;
+            border-radius: 10px;
+        }}
+        
+        .tabla-scroll-container::-webkit-scrollbar-thumb:hover {{
+            background: #555;
+        }}
+        
+        .nota {{
+            text-align: center;
+            margin-top: 30px;
+            padding: 15px;
+            background-color: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 5px;
+            color: #856404;
+            font-size: 14px;
+        }}
+        
+        @media (max-width: 1400px) {{
+            .grid-container {{
+                grid-template-columns: 1fr;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📈 RESUMEN ANUAL DE OPTIMIZACIÓN ENERGÉTICA</h1>
+    </div>
+    
+    <div class="grid-container">
+        <div class="table-wrapper">
+            <div class="table-title">📊 FUNCIÓN OBJETIVO</div>
+            {html_tabla1}
+        </div>
+        
+        <div class="table-wrapper">
+            <div class="table-title">⚡ CANTIDADES GWh-año</div>
+            {html_tabla2}
+        </div>
+        
+        <div class="table-wrapper">
+            <div class="table-title">💰 PRECIO INDEXADO ($/kWh)</div>
+            {html_tabla3}
+        </div>
+        
+        <div class="table-wrapper">
+            <div class="table-title">💵 PRECIO NO INDEXADO ($/kWh)</div>
+            {html_tabla4}
+        </div>
+    </div>
+    
+    <div class="nota">
+        <strong>Nota:</strong> Función Objetivo en unidades de millones. Cantidades en GWh. Precios en $/kWh.
+        <br>Scroll horizontal: La primera columna (fechas) permanece fija. Scroll vertical: Los encabezados permanecen fijos.
+    </div>
+</body>
+</html>
+"""
         
         # Paso 5: Guardar archivo HTML
         archivo_salida = output_dir / "09_tablas_resumen_anual.html"
