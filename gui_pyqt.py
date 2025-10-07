@@ -633,7 +633,7 @@ class WorkerThread(QThread):
             except ImportError:
                 return False, "Módulo de visualizaciones no disponible\nVerifique que estén instaladas las dependencias (plotly, matplotlib)"
             
-            self.progress.emit("🔄 Cargando resultados desde Excel...")
+            self.progress.emit("📄 Cargando resultados desde Excel...")
             
             # Cargar resultados (igual que en main.py)
             from core.evaluacion import cargar_resultados_desde_excel, leer_ofertas_evaluadas
@@ -697,15 +697,15 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Optimización - INTERFAZ COMPLETA")
-        self.setGeometry(100, 100, 1400, 850)  # Más grande para acomodar todos los campos
+        self.setGeometry(100, 100, 1400, 800)  # Ajustado a 800 de altura
         
         # Variables para TODOS los campos de entrada
         self.entry_crecimiento = None
         self.entry_fecha_sicep = None
         self.entry_constante_sicep = None
-        self.entry_archivo_demanda = None          # Archivo de datos iniciales/demanda
-        self.entry_carpeta_ofertas = None         # NUEVO: Carpeta donde están las ofertas
-        self.entry_carpeta_exportacion = None     # Carpeta donde van los resultados
+        self.entry_archivo_demanda = None
+        self.entry_carpeta_ofertas = None
+        self.entry_carpeta_exportacion = None
         
         # Worker thread
         self.worker = None
@@ -764,40 +764,39 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
                 background-color: white;
                 border: 1px solid #e2e8f0;
                 border-radius: 12px;
-                padding: 20px;
-                margin: 10px;
+                padding: 15px;
             }
             
             QLabel#seccion_titulo {
                 color: #2d3748;
-                font-size: 18px;
+                font-size: 16px;
                 font-weight: bold;
-                margin-bottom: 10px;
-                margin-top: 15px;
+                margin-bottom: 8px;
+                margin-top: 10px;
             }
             
             QLabel#seccion_subtitulo {
                 color: #718096;
-                font-size: 13px;
-                margin-bottom: 15px;
+                font-size: 12px;
+                margin-bottom: 12px;
             }
             
             QLabel#campo_label {
                 color: #4a5568;
                 font-size: 12px;
                 font-weight: bold;
-                margin-bottom: 5px;
-                margin-top: 10px;
+                margin-bottom: 4px;
+                margin-top: 6px;
             }
             
             QLineEdit {
-                padding: 10px;
+                padding: 8px;
                 border: 2px solid #e2e8f0;
                 border-radius: 6px;
                 font-size: 13px;
                 background-color: #f7fafc;
                 color: #2d3748;
-                min-height: 20px;
+                min-height: 18px;
             }
             
             QLineEdit:focus {
@@ -816,10 +815,10 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
                 color: white;
                 border: none;
                 border-radius: 12px;
-                padding: 20px;
-                font-size: 16px;
+                padding: 18px;
+                font-size: 15px;
                 font-weight: bold;
-                min-height: 20px;
+                min-height: 45px;
             }
             
             QPushButton#btn_principal:hover {
@@ -838,11 +837,11 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
                 color: white;
                 border: none;
                 border-radius: 8px;
-                padding: 12px;
+                padding: 11px;
                 font-size: 13px;
                 text-align: left;
-                margin-bottom: 8px;
-                min-height: 15px;
+                margin-bottom: 6px;
+                min-height: 38px;
             }
             
             QPushButton#btn_accion:hover {
@@ -860,8 +859,8 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
                 color: white;
                 border: none;
                 border-radius: 6px;
-                padding: 10px 15px;
-                font-size: 14px;
+                padding: 8px 12px;
+                font-size: 13px;
             }
             
             QPushButton#btn_archivo:hover {
@@ -873,8 +872,8 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
                 color: white;
                 border: none;
                 border-radius: 8px;
-                padding: 12px;
-                font-size: 14px;
+                padding: 10px;
+                font-size: 13px;
                 font-weight: bold;
             }
             
@@ -899,7 +898,7 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
             
             QLabel#status_label {
                 color: #4a5568;
-                font-size: 13px;
+                font-size: 12px;
                 font-weight: bold;
                 padding: 8px;
                 background-color: #f7fafc;
@@ -909,13 +908,15 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
         """)
         
     def crear_interfaz(self):
-        """Crear la interfaz principal COMPLETA"""
-        # Widget central con scroll
+        """Crear la interfaz principal - SOLO CAMBIOS VISUALES (sin scroll)"""
+        # Widget central
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
-        # Layout principal
+        # Layout principal con espaciado reducido
         main_layout = QVBoxLayout()
+        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(15, 12, 15, 12)
         central_widget.setLayout(main_layout)
         
         # ==================== TÍTULO ====================
@@ -926,22 +927,16 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
         
         # ==================== CONTENIDO PRINCIPAL ====================
         content_layout = QHBoxLayout()
-        content_widget = QWidget()
-        content_widget.setLayout(content_layout)
-        main_layout.addWidget(content_widget)
+        content_layout.setSpacing(12)
         
-        # ==================== COLUMNA IZQUIERDA - DATOS ====================
+        # ==================== COLUMNA IZQUIERDA - SIN SCROLL ====================
         datos_frame = QFrame()
         datos_frame.setObjectName("datos_frame")
-        datos_frame.setFixedWidth(550)  # Más ancho para acomodar campos
-        
-        # Scroll area para los datos
-        scroll_datos = QScrollArea()
-        scroll_datos.setWidget(datos_frame)
-        scroll_datos.setWidgetResizable(True)
-        scroll_datos.setMaximumWidth(570)
+        datos_frame.setFixedWidth(550)
         
         datos_layout = QVBoxLayout()
+        datos_layout.setSpacing(6)
+        datos_layout.setContentsMargins(15, 12, 15, 12)
         datos_frame.setLayout(datos_layout)
         
         # Título de sección
@@ -1007,10 +1002,11 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
         datos_layout.addWidget(btn_validar)
         
         datos_layout.addStretch()
-        content_layout.addWidget(scroll_datos)
+        content_layout.addWidget(datos_frame)
         
         # ==================== COLUMNA DERECHA - BOTONES ====================
         botones_layout = QVBoxLayout()
+        botones_layout.setSpacing(7)
         botones_widget = QWidget()
         botones_widget.setLayout(botones_layout)
         
@@ -1021,7 +1017,7 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
         botones_layout.addWidget(self.btn_principal)
         
         # Espaciado
-        botones_layout.addSpacing(30)
+        botones_layout.addSpacing(20)
         
         # Información de estado
         info_label = QLabel("ℹ️ Funciones individuales")
@@ -1049,10 +1045,13 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
         botones_layout.addStretch()
         content_layout.addWidget(botones_widget)
         
+        main_layout.addLayout(content_layout)
+        
         # ==================== ÁREA DE STATUS Y PROGRESO ====================
         status_frame = QFrame()
-        status_frame.setMaximumHeight(100)
+        status_frame.setMaximumHeight(85)
         status_layout = QVBoxLayout()
+        status_layout.setSpacing(5)
         status_frame.setLayout(status_layout)
         
         # Label de estado
@@ -1078,7 +1077,7 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
         entry = QLineEdit()
         entry.setPlaceholderText(placeholder)
         layout.addWidget(entry)
-        layout.addSpacing(10)
+        layout.addSpacing(6)
         
         return entry
         
@@ -1091,6 +1090,7 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
         
         # Horizontal layout para entry + botón
         file_layout = QHBoxLayout()
+        file_layout.setSpacing(5)
         file_widget = QWidget()
         file_widget.setLayout(file_layout)
         
@@ -1112,7 +1112,7 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
         file_layout.addWidget(btn)
         
         layout.addWidget(file_widget)
-        layout.addSpacing(10)
+        layout.addSpacing(6)
         
         return entry
     
