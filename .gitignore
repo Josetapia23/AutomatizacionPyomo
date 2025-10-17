@@ -77,3 +77,7 @@ output/visualizaciones
 *.zip
 *.exe
 OptimizacionEnergia_v*.zip
+# 1. Remover __pycache__ del tracking de git (sin borrarlos del disco)
+git rm -r --cached __pycache__/
+git rm -r --cached core/__pycache__/
+git rm -r --cached optimizacion/__pycache__/
