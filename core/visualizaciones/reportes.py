@@ -413,7 +413,7 @@ def crear_reporte_html_consolidado_fusionado(resultados_dict, output_dir, result
                 <a href="#avanzadas" class="nav-button">🔬 Análisis Avanzados</a>
                 <a href="#consolidada" class="nav-button">🎯 Consolidado Ofertas</a>
                 <a href="reporte_ofertas.html" class="nav-button" target="_blank">📋 Análisis por Ofertas</a>
-                <a href="09_tablas_resumen_anual.html" class="nav-button" target="_blank">📊 FUNCIÓN OBJETIVO</a>
+                <a href="09_tablas_resumen_anual.html" class="nav-button" target="_blank">📊 Función Objetivo</a>
 
             </div>
         """

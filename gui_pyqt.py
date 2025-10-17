@@ -92,7 +92,7 @@ class WorkerThread(QThread):
                 return
             
             elif self.operacion == "optimizar":
-                self.progress.emit("⚡ Iniciando optimización con Pyomo...")
+                self.progress.emit("⚡ Iniciando optimización ...")
                 result, mensaje = self.ejecutar_optimizacion()
                 if result:
                     self.finished.emit(True, mensaje)
@@ -271,11 +271,11 @@ class WorkerThread(QThread):
             mensaje_final += "  1. ✅ Proyección de indexadores\n"
             mensaje_final += "  2. ✅ Proyección de precio SICEP\n"
             mensaje_final += "  3. ✅ Procesamiento de ofertas\n"
-            mensaje_final += "  4. ✅ Optimización con Pyomo\n"
+            mensaje_final += "  4. ✅ Optimización energética\n"
             mensaje_final += "  5. ✅ Generación de visualizaciones\n\n"
             mensaje_final += f"📁 Resultados guardados en:\n{carpeta_exportacion}\n\n"
-            mensaje_final += f"📊 Ofertas procesadas: {len(ofertas_df_completas)}\n"
-            mensaje_final += f"⚡ Ofertas optimizadas: {len(ofertas_df)}\n"
+            mensaje_final += f"📊 Datos procesados: {len(ofertas_df_completas)}\n"
+            mensaje_final += f"⚡ Datos optimizados: {len(ofertas_df)}\n"
             mensaje_final += f"🌐 Visualizaciones: {vis_dir}/reporte_consolidado.html"
             
             return True, mensaje_final
@@ -1049,7 +1049,7 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
             ("📊 Crear proyección de indexadores", self.crear_indexadores),
             ("💰 Crear proyección de precio SICEP", self.crear_sicep),
             ("📋 Procesar ofertas", self.procesar_ofertas),
-            ("⚡ Optimizar con Pyomo", self.optimizar),
+            ("⚡ Optimización energética", self.optimizar),
             ("📈 Generar visualizaciones", self.generar_visualizaciones)
         ]
         

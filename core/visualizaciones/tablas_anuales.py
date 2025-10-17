@@ -512,9 +512,9 @@ def generar_tablas_resumen_anual(resultados_dict, output_dir):
     Returns:
         Path: Ruta al archivo HTML generado, o None si hay error
     """
-    logger.info("=== GENERANDO TABLAS DE RESUMEN ANUAL ===")
+    logger.info("=== GENERANDO TABLAS DE RESUMEN ===")
     print(f"\n" + "="*60)
-    print(f"📊 GENERANDO TABLAS DE RESUMEN ANUAL")
+    print(f"📊 GENERANDO TABLAS DE RESUMEN")
     print(f"="*60)
     
     try:
@@ -744,7 +744,7 @@ def generar_tablas_resumen_anual(resultados_dict, output_dir):
 </head>
 <body>
     <div class="header">
-        <h1>📈 RESUMEN ANUAL DE OPTIMIZACIÓN ENERGÉTICA</h1>
+        <h1>📈 RESUMEN DE OPTIMIZACIÓN ENERGÉTICA</h1>
     </div>
     
     <div class="grid-container">
@@ -781,7 +781,7 @@ def generar_tablas_resumen_anual(resultados_dict, output_dir):
         with open(archivo_salida, 'w', encoding='utf-8') as f:
             f.write(html_content)
         
-        print(f"\n✅ TABLAS DE RESUMEN ANUAL GENERADAS")
+        print(f"\n✅ TABLAS DE RESUMEN GENERADAS")
         print(f"📁 Archivo: {archivo_salida.name}")
         print(f"="*60)
         
