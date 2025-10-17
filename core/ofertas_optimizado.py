@@ -28,7 +28,7 @@ from core.utils import (
     verificar_hoja_existe_case_insensitive
 )
 from core.indexadores import calcular_numerador, calcular_denominador, crear_proyeccion_precio_sicep
-
+from core.dialog_helper import mostrar_dialogo_confirmacion
 logger = logging.getLogger(__name__)
 
 
@@ -607,15 +607,36 @@ def procesar_ofertas_optimizado_corregido(carpeta_ofertas=OFERTAS_DIR, datos_ini
         print(f"\n💡 FORMATO CORRECTO: Agente-OFERTA-Número")
         print(f"   Ejemplos: EPM-OFERTA-001.xlsx, AES-OFERTA-002.xlsx")
         
-        # Preguntar si continuar
+        # Preguntar si continuar - AHORA CON SOPORTE GUI
         if resumen['ofertas_validas'] > 0:
-            continuar = input(f"\n¿Continuar con las {resumen['ofertas_validas']} ofertas validas? (s/n): ")
-            if continuar.lower() != 's':
-                print("❌ Procesamiento cancelado")
+            archivos_invalidos = "\n".join([f"   • {oferta.nombre_archivo}" for oferta in ofertas_invalidas])
+
+            mensaje_principal = f"Se encontraron {resumen['ofertas_invalidas']} ofertas con nombres inválidos."
+
+            detalles = f"""
+            Ofertas válidas: {resumen['ofertas_validas']}
+            Ofertas inválidas: {resumen['ofertas_invalidas']}
+
+            Archivos con nombres inválidos:
+            {archivos_invalidos}
+
+            Formato correcto: Agente-OFERTA-Número
+            Ejemplos: EPM-OFERTA-001.xlsx, AES-OFERTA-002.xlsx
+
+            ¿Desea continuar procesando solo las ofertas válidas?
+        """
+            
+            continuar = mostrar_dialogo_confirmacion(
+                titulo="⚠️ Ofertas con nombres inválidos",
+                mensaje=mensaje_principal,
+                detalles=detalles.strip()
+            )
+            
+            if not continuar:
+                print("❌ Procesamiento cancelado por el usuario")
                 return False
-        else:
-            print("❌ No hay ofertas validas para procesar")
-            return False
+            else:
+                print(f"✅ Continuando con {resumen['ofertas_validas']} ofertas válidas")
     
     print(f"🚀 Procesando {resumen['ofertas_validas']} ofertas validas con lectura optimizada...\n")
     # ===== FIN DE VALIDACIÓN =====

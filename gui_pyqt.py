@@ -33,13 +33,32 @@ class WorkerThread(QThread):
     """Thread para ejecutar operaciones pesadas sin bloquear la GUI"""
     finished = pyqtSignal(bool, str)  # éxito, mensaje
     progress = pyqtSignal(str)  # mensaje de progreso
+    ask_confirmation = pyqtSignal(str, str, str)  
     
     def __init__(self, operacion, **kwargs):
         super().__init__()
         self.operacion = operacion
         self.kwargs = kwargs
+        self.user_response = None              
+        self.confirmation_received = False    
+         
+    def wait_for_user_response(self):
+        """Espera la respuesta del usuario"""
+        from PyQt5.QtCore import QThread
+        self.confirmation_received = False
+        while not self.confirmation_received:
+            QThread.msleep(100)  # Esperar 100ms
+        return self.user_response
+    
+    def set_user_response(self, response):
+        """Establece la respuesta del usuario"""
+        self.user_response = response
+        self.confirmation_received = True    
         
     def run(self):
+        from core.dialog_helper import set_worker_thread
+        set_worker_thread(self)
+        
         try:
             if self.operacion == "flujo_completo":
                 self.progress.emit("🚀 Iniciando flujo completo...")
@@ -1302,6 +1321,7 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
         self.worker = WorkerThread(operacion, **kwargs)
         self.worker.progress.connect(self.actualizar_status)
         self.worker.finished.connect(self.on_operacion_completada)
+        self.worker.ask_confirmation.connect(self.mostrar_dialogo_confirmacion)
         self.worker.start()
     
     def on_operacion_completada(self, exito, mensaje):
@@ -1314,6 +1334,32 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
             QMessageBox.information(self, "Éxito", mensaje)
         else:
             QMessageBox.critical(self, "Error", mensaje)
+
+    def mostrar_dialogo_confirmacion(self, titulo, mensaje, detalles):
+        """Muestra diálogo de confirmación y envía respuesta al worker"""
+        msgBox = QMessageBox(self)
+        msgBox.setIcon(QMessageBox.Warning)
+        msgBox.setWindowTitle(titulo)
+        msgBox.setText(mensaje)
+        
+        if detalles:
+            msgBox.setInformativeText(detalles)
+        
+        msgBox.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msgBox.setDefaultButton(QMessageBox.Yes)
+        
+        # Personalizar botones en español
+        btnYes = msgBox.button(QMessageBox.Yes)
+        btnYes.setText("Sí, continuar")
+        
+        btnNo = msgBox.button(QMessageBox.No)
+        btnNo.setText("No, cancelar")
+        
+        resultado = msgBox.exec_()
+        
+        # Enviar respuesta al worker
+        if self.worker:
+            self.worker.set_user_response(resultado == QMessageBox.Yes)
     
     # ==================== FUNCIONES DE BOTONES ====================
     def ejecutar_flujo_completo(self):

@@ -72,3 +72,8 @@ ofertas.cpython-310.pyc
 utils.cpython-310.pyc
 config.cpython-310.pyc
 output/visualizaciones
+
+# Ejecutables y ZIPs (no subir a GitHub)
+*.zip
+*.exe
+OptimizacionEnergia_v*.zip
