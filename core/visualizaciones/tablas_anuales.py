@@ -237,6 +237,9 @@ def calcular_tablas_resumen(datos_mensuales):
     
     # Totales para función objetivo
     totales_funcion_objetivo = {oferta: 0 for oferta in ofertas}
+    totales_cantidades = {oferta: 0 for oferta in ofertas}
+    totales_precio_indexado = {oferta: 0 for oferta in ofertas}
+    totales_precio_no_indexado = {oferta: 0 for oferta in ofertas}
     
     # Calcular valores para cada fecha y oferta
     for fecha in fechas:
@@ -259,20 +262,26 @@ def calcular_tablas_resumen(datos_mensuales):
             totales_funcion_objetivo[oferta] += funcion_objetivo
             
             # TABLA 2: Cantidades (GWh)
-            # = Cantidad_kWh / 1,000,000
+           # = Cantidad_kWh / 1,000,000
             cantidad_gwh = cantidad_kwh / 1_000_000
             tablas['tabla_cantidades']['datos'][fecha][oferta] = cantidad_gwh
+            totales_cantidades[oferta] += cantidad_gwh  
             
             # TABLA 3: Precio Indexado ($/kWh)
             # = Precio directo del resumen
             tablas['tabla_precio_indexado']['datos'][fecha][oferta] = precio_indexado
+            totales_precio_indexado[oferta] += precio_indexado  
             
             # TABLA 4: Precio No Indexado ($/kWh)
             # = Precio directo del resumen
             tablas['tabla_precio_no_indexado']['datos'][fecha][oferta] = precio_no_indexado
+            totales_precio_no_indexado[oferta] += precio_no_indexado  
     
-    # Agregar fila de totales a función objetivo
+    # Agregar fila de totales a las 4 tablas
     tablas['tabla_funcion_objetivo']['totales'] = totales_funcion_objetivo
+    tablas['tabla_cantidades']['totales'] = totales_cantidades
+    tablas['tabla_precio_indexado']['totales'] = totales_precio_indexado
+    tablas['tabla_precio_no_indexado']['totales'] = totales_precio_no_indexado
     
     print(f"✅ Tablas calculadas correctamente")
     print(f"   - Función Objetivo con totales: {len(fechas)} meses + 1 fila total")
@@ -441,28 +450,45 @@ def generar_tabla_html(titulo, datos_tabla, ofertas, incluir_totales=False, form
         
         filas_html.append(f'<tr>{"".join(celdas)}</tr>')
     
-    # Agregar fila de TOTAL ÚNICO si corresponde
+    # Agregar fila de TOTALES POR COLUMNA
     if incluir_totales and 'totales' in datos_tabla:
-        # Calcular el gran total sumando todos los totales por oferta
-        gran_total = sum(datos_tabla['totales'].values())
-        
-        if formato == 'dinero':
-            total_formateado = f"${gran_total:,.2f}"
-        else:
-            total_formateado = f"{gran_total:.2f}"
-        
-        # Fila de total: primera celda con "TOTAL", última celda con el valor, resto vacías
-        num_columnas = len(ofertas) + 1  # +1 por la columna de fechas
         celdas_total = [
             '<td class="fecha-col total-row"><strong>TOTAL</strong></td>'
         ]
-        # Celdas vacías para todas las ofertas menos la última
-        for i in range(len(ofertas) - 1):
-            celdas_total.append('<td class="dato-col total-row"></td>')
-        # Última celda con el gran total
-        celdas_total.append(f'<td class="dato-col total-row total-final"><strong>{total_formateado}</strong></td>')
+        
+        # Agregar el total de cada oferta en su columna
+        for oferta in ofertas:
+            total_oferta = datos_tabla['totales'][oferta]
+            
+            if total_oferta == 0 or abs(total_oferta) < 0.01:
+                celdas_total.append('<td class="dato-col total-row">-</td>')
+            else:
+                if formato == 'dinero':
+                    total_formateado = f"<strong>${total_oferta:,.2f}</strong>"
+                elif formato == 'gwh':
+                    total_formateado = f"<strong>{total_oferta:.2f}</strong>"
+                elif formato == 'precio':
+                    total_formateado = f"<strong>${total_oferta:.2f}</strong>"
+                else:
+                    total_formateado = f"<strong>{total_oferta:.2f}</strong>"
+                
+                celdas_total.append(f'<td class="dato-col total-row">{total_formateado}</td>')
         
         filas_html.append(f'<tr>{"".join(celdas_total)}</tr>')
+        
+        # Agregar fila de GRAN TOTAL (suma de todos)
+        gran_total = sum(datos_tabla['totales'].values())
+        if gran_total > 0.01:
+            if formato == 'dinero':
+                gt_formateado = f"<strong>${gran_total:,.2f}</strong>"
+            elif formato == 'gwh':
+                gt_formateado = f"<strong>{gran_total:.2f}</strong>"
+            elif formato == 'precio':
+                gt_formateado = f"<strong>${gran_total:.2f}</strong>"
+            else:
+                gt_formateado = f"<strong>{gran_total:.2f}</strong>"
+            
+            
     
     # Construir encabezados de columna
     headers_html = '<th class="fecha-col">MES/AÑO</th>'
@@ -482,8 +508,23 @@ def generar_tabla_html(titulo, datos_tabla, ofertas, incluir_totales=False, form
         </table>
     </div>
     '''
+    # Calcular gran total si hay totales
+    gran_total_html = ""
+    if incluir_totales and 'totales' in datos_tabla:
+        gran_total = sum(datos_tabla['totales'].values())
+        if gran_total > 0.01:
+            if formato == 'dinero':
+                gt_formateado = f"${gran_total:,.2f}"
+            elif formato == 'gwh':
+                gt_formateado = f"{gran_total:.2f}"
+            elif formato == 'precio':
+                gt_formateado = f"${gran_total:.2f}"
+            else:
+                gt_formateado = f"{gran_total:.2f}"
+            
+            gran_total_html = f'<div class="gran-total-bar">GRAN TOTAL: <strong>{gt_formateado}</strong></div>'
     
-    return tabla_html
+    return tabla_html, gran_total_html
 
 def crear_html_con_scroll_individual(fig1, fig2, fig3, fig4):
     """
@@ -535,7 +576,7 @@ def generar_tablas_resumen_anual(resultados_dict, output_dir):
         # Paso 3: Generar HTML de cada tabla
         print(f"\n🎨 Generando tablas HTML...")
         
-        html_tabla1 = generar_tabla_html(
+        html_tabla1, gran_total_html1 = generar_tabla_html(
             'FUNCIÓN OBJETIVO',
             tablas['tabla_funcion_objetivo'],
             ofertas,
@@ -543,27 +584,27 @@ def generar_tablas_resumen_anual(resultados_dict, output_dir):
             formato='dinero'
         )
         
-        html_tabla2 = generar_tabla_html(
+        html_tabla2, gran_total_html2 = generar_tabla_html(
             'CANTIDADES GWh-año',
             tablas['tabla_cantidades'],
             ofertas,
-            incluir_totales=False,
+            incluir_totales=True,
             formato='gwh'
         )
         
-        html_tabla3 = generar_tabla_html(
+        html_tabla3, gran_total_html3 = generar_tabla_html(
             'PRECIO INDEXADO ($/kWh)',
             tablas['tabla_precio_indexado'],
             ofertas,
-            incluir_totales=False,
+            incluir_totales=True,
             formato='precio'
         )
         
-        html_tabla4 = generar_tabla_html(
+        html_tabla4, gran_total_html4 = generar_tabla_html(
             'PRECIO NO INDEXADO ($/kWh)',
             tablas['tabla_precio_no_indexado'],
             ofertas,
-            incluir_totales=False,
+            incluir_totales=True,
             formato='precio'
         )
         
@@ -615,6 +656,9 @@ def generar_tablas_resumen_anual(resultados_dict, output_dir):
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
             padding: 0;
             overflow: hidden;
+            position: relative;
+            display: flex;
+            flex-direction: column;
         }}
         
         .table-title {{
@@ -704,6 +748,23 @@ def generar_tablas_resumen_anual(resultados_dict, output_dir):
             text-align: right !important;
         }}
         
+       /* Barra de GRAN TOTAL - Fija en la parte inferior */
+        .gran-total-bar {{
+            background: linear-gradient(135deg, #ffc107 0%, #ffb300 100%);
+            color: #000;
+            padding: 15px;
+            text-align: center;
+            font-size: 16px;
+            font-weight: bold;
+            position: sticky;
+            bottom: 0;
+            z-index: 10;
+            box-shadow: 0 -2px 8px rgba(0,0,0,0.2);
+            border-top: 3px solid #ff9800;
+            margin-top: auto;
+            flex-shrink: 0;
+        }}
+        
         /* Scrollbar personalizado */
         .tabla-scroll-container::-webkit-scrollbar {{
             height: 12px;
@@ -751,26 +812,35 @@ def generar_tablas_resumen_anual(resultados_dict, output_dir):
         <div class="table-wrapper">
             <div class="table-title">📊 FUNCIÓN OBJETIVO</div>
             {html_tabla1}
+            {gran_total_html1}
         </div>
         
         <div class="table-wrapper">
             <div class="table-title">⚡ CANTIDADES GWh-año</div>
             {html_tabla2}
+            {gran_total_html2}
         </div>
         
         <div class="table-wrapper">
             <div class="table-title">💰 PRECIO INDEXADO ($/kWh)</div>
             {html_tabla3}
+            {gran_total_html3}
         </div>
         
         <div class="table-wrapper">
             <div class="table-title">💵 PRECIO NO INDEXADO ($/kWh)</div>
             {html_tabla4}
+            {gran_total_html4}
         </div>
     </div>
     
-    <div class="nota">
-        <strong>Nota:</strong> Función Objetivo en unidades de millones. Cantidades en GWh. Precios en $/kWh.
+     <div class="nota">
+        <strong>📌 Notas importantes:</strong>
+        <ul style="text-align: left; margin: 10px auto; max-width: 800px; list-style-position: inside;">
+            <li><strong>Función Objetivo:</strong> Calculada en millones de pesos utilizando precios indexados</li>
+            <li><strong>Cantidades:</strong> Expresadas en GWh (Gigawatt-hora)</li>
+            <li><strong>Precios:</strong> Expresados en $/kWh</li>
+        </ul>
     </div>
 </body>
 </html>
