@@ -1,3 +1,4 @@
+
 """
 GUI con PyQt - Sistema de Optimización Energética COMPLETO
 INTERFAZ FINAL: Todos los campos que el usuario necesita ingresar
@@ -5,6 +6,24 @@ INTERFAZ FINAL: Todos los campos que el usuario necesita ingresar
 
 import sys
 import os
+
+# Esto previene errores en algunos PCs donde sys.stdout es None
+if getattr(sys, 'frozen', False):
+    import io
+    
+    class DummyStream(io.IOBase):
+        def write(self, text):
+            pass
+        def flush(self):
+            pass
+        def isatty(self):
+            return False
+    
+    if sys.stdout is None:
+        sys.stdout = DummyStream()
+    if sys.stderr is None:
+        sys.stderr = DummyStream()
+
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                            QHBoxLayout, QGridLayout, QLabel, QLineEdit, QPushButton, 
                            QFileDialog, QMessageBox, QTextEdit, QFrame, QSizePolicy,
