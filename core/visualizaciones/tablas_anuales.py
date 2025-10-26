@@ -241,7 +241,7 @@ def calcular_tablas_resumen(datos_mensuales):
     totales_precio_indexado = {oferta: 0 for oferta in ofertas}
     totales_precio_no_indexado = {oferta: 0 for oferta in ofertas}
     
-    # Calcular valores para cada fecha y oferta
+# Calcular valores para cada fecha y oferta
     for fecha in fechas:
         # Inicializar diccionarios para esta fecha
         tablas['tabla_funcion_objetivo']['datos'][fecha] = {}
@@ -255,38 +255,30 @@ def calcular_tablas_resumen(datos_mensuales):
             precio_indexado = datos_mensuales['precios_indexados'][fecha][oferta]
             precio_no_indexado = datos_mensuales['precios_no_indexados'][fecha][oferta]
             
+            # TABLA 2: Cantidades (GWh) - CALCULAR PRIMERO
+            valor_exacto_gwh = cantidad_kwh / 1_000_000
+            valor_redondeado_gwh = round(valor_exacto_gwh, 2)
+            tablas['tabla_cantidades']['datos'][fecha][oferta] = valor_redondeado_gwh
+            totales_cantidades[oferta] += valor_redondeado_gwh
+            
             # TABLA 1: Función Objetivo (Millones $)
-            # = (Cantidad_kWh × Precio_Indexado) / 1,000,000
-            funcion_objetivo = (cantidad_kwh * precio_indexado) / 1_000_000
-            tablas['tabla_funcion_objetivo']['datos'][fecha][oferta] = funcion_objetivo
-            totales_funcion_objetivo[oferta] += funcion_objetivo
+            # ← USAR valor_redondeado_gwh (no cantidad_kwh)
+            valor_redondeado = round(valor_redondeado_gwh * precio_indexado, 2)
+            tablas['tabla_funcion_objetivo']['datos'][fecha][oferta] = valor_redondeado
+            totales_funcion_objetivo[oferta] += valor_redondeado
             
-            # TABLA 2: Cantidades (GWh)
-           # = Cantidad_kWh / 1,000,000
-            cantidad_gwh = cantidad_kwh / 1_000_000
-            tablas['tabla_cantidades']['datos'][fecha][oferta] = cantidad_gwh
-            totales_cantidades[oferta] += cantidad_gwh  
-            
-            # TABLA 3: Precio Indexado ($/kWh)
-            # = Precio directo del resumen
+            # TABLA 3: Precio Indexado ($/kWh) - SIN totales
             tablas['tabla_precio_indexado']['datos'][fecha][oferta] = precio_indexado
-            totales_precio_indexado[oferta] += precio_indexado  
             
-            # TABLA 4: Precio No Indexado ($/kWh)
-            # = Precio directo del resumen
+            # TABLA 4: Precio No Indexado ($/kWh) - SIN totales
             tablas['tabla_precio_no_indexado']['datos'][fecha][oferta] = precio_no_indexado
-            totales_precio_no_indexado[oferta] += precio_no_indexado  
-    
-    # Agregar fila de totales a las 4 tablas
+
+    # ← FUERA del loop for fecha!
+    # Agregar fila de totales SOLO a las 2 primeras tablas
     tablas['tabla_funcion_objetivo']['totales'] = totales_funcion_objetivo
     tablas['tabla_cantidades']['totales'] = totales_cantidades
-    tablas['tabla_precio_indexado']['totales'] = totales_precio_indexado
-    tablas['tabla_precio_no_indexado']['totales'] = totales_precio_no_indexado
-    
+
     print(f"✅ Tablas calculadas correctamente")
-    print(f"   - Función Objetivo con totales: {len(fechas)} meses + 1 fila total")
-    print(f"   - Otras 3 tablas: {len(fechas)} meses cada una")
-    
     return tablas
 
 def crear_tabla_plotly(titulo, datos_tabla, ofertas, incluir_totales=False, formato='dinero', nota=None):

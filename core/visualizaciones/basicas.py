@@ -534,6 +534,7 @@ def crear_grafica_energia_por_anos(resultados_dict, ofertas_df=None):
         logger.error(f"Error al crear la gráfica anual: {e}")
         print(f"❌ Error en gráfica anual: {e}")
         return None
+    
 def crear_grafica_resumen_general(resultados_dict):
     """
     Crea la gráfica de resumen general MEJORADA:
@@ -571,16 +572,17 @@ def crear_grafica_resumen_general(resultados_dict):
         for _, row in resumen_df.iterrows():
             for col in resumen_df.columns:
                 if "CANTIDAD (KWh)" in col:
-                    cantidad = row[col] if pd.notna(row[col]) else 0
+                    cantidad_kwh = row[col] if pd.notna(row[col]) else 0
                     
-                    if cantidad > 0:  # Solo procesar ofertas con cantidad asignada
-                        energia_total += cantidad
-                        
+                    if cantidad_kwh > 0:  # Solo procesar ofertas con cantidad asignada
+                        # REDONDEAR A GWh ANTES DE SUMAR (igual que en las tablas)
+                        cantidad_gwh = round(cantidad_kwh / 1_000_000, 2)
+                        energia_total += cantidad_gwh  # ← Ahora suma GWh redondeados
                         # Extraer nombre del agente/oferta
                         agente = col.replace(" CANTIDAD (KWh)", "")
                         
                         # DEBUG: Mostrar datos por agente
-                        print(f"🔍 DEBUG - Agente: {agente}, Cantidad: {cantidad:,.0f} kWh")
+                        print(f"🔍 DEBUG - Agente: {agente}, Cantidad: {cantidad_gwh:,.0f} GWh")
                         
                         # Buscar precios correspondientes
                         precio_indexado_col = f"{agente} PRECIO INDEXADO ($/KWh)"
@@ -592,7 +594,7 @@ def crear_grafica_resumen_general(resultados_dict):
                             if precio_indexado > 0:
                                 precios_indexados.append(precio_indexado)
                                 agentes_precios_indexados[precio_indexado] = agente
-                                costo_total_indexado += cantidad * precio_indexado
+                                costo_total_indexado += cantidad_gwh * precio_indexado
                                 print(f"   💰 Precio Indexado: ${precio_indexado:.4f}")
                         
                         # Procesar precio no indexado
@@ -601,7 +603,7 @@ def crear_grafica_resumen_general(resultados_dict):
                             if precio_no_indexado > 0:
                                 precios_no_indexados.append(precio_no_indexado)
                                 agentes_precios_no_indexados[precio_no_indexado] = agente
-                                costo_total_no_indexado += cantidad * precio_no_indexado
+                                costo_total_no_indexado += cantidad_gwh * precio_no_indexado
                                 print(f"   💲 Precio No Indexado: ${precio_no_indexado:.4f}")
         
         # DEBUG: Verificar totales
@@ -609,7 +611,7 @@ def crear_grafica_resumen_general(resultados_dict):
         print(f"🔍 DEBUG - Energía total en GW: {energia_total / 1_000_000:.2f} GW")
         
         # CORREGIDO: Convertir energía a GW-TOTAL y redondear a 2 decimales
-        energia_gw_total = round(energia_total / 1_000_000, 2)
+        energia_gw_total = round(energia_total, 2)
         
         # Precios ponderados (redondeados a 2 decimales)
         precio_ponderado_indexado = round(costo_total_indexado / energia_total, 2) if energia_total > 0 else 0
