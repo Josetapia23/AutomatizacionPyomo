@@ -235,13 +235,13 @@ def calcular_tablas_resumen(datos_mensuales):
         }
     }
     
-    # Totales para función objetivo
+   # Totales para función objetivo
     totales_funcion_objetivo = {oferta: 0 for oferta in ofertas}
     totales_cantidades = {oferta: 0 for oferta in ofertas}
     totales_precio_indexado = {oferta: 0 for oferta in ofertas}
     totales_precio_no_indexado = {oferta: 0 for oferta in ofertas}
-    
-# Calcular valores para cada fecha y oferta
+
+    # Calcular valores para cada fecha y oferta
     for fecha in fechas:
         # Inicializar diccionarios para esta fecha
         tablas['tabla_funcion_objetivo']['datos'][fecha] = {}
@@ -273,10 +273,97 @@ def calcular_tablas_resumen(datos_mensuales):
             # TABLA 4: Precio No Indexado ($/kWh) - SIN totales
             tablas['tabla_precio_no_indexado']['datos'][fecha][oferta] = precio_no_indexado
 
-    # ← FUERA del loop for fecha!
-    # Agregar fila de totales SOLO a las 2 primeras tablas
+    # PASO 1: Calcular totales de PRECIO INDEXADO (promedio ponderado)
+    print("📊 Calculando totales de precios indexados...")
+
+    for oferta in ofertas:
+        suma_cantidad_x_precio = 0
+        suma_cantidad = 0
+        
+        for fecha in fechas:
+            cantidad = tablas['tabla_cantidades']['datos'][fecha][oferta]
+            precio = tablas['tabla_precio_indexado']['datos'][fecha][oferta]
+            
+            suma_cantidad_x_precio += cantidad * precio
+            suma_cantidad += cantidad
+        
+        # Precio promedio ponderado de esta oferta
+        if suma_cantidad > 0:
+            totales_precio_indexado[oferta] = round(suma_cantidad_x_precio / suma_cantidad, 2)
+        else:
+            totales_precio_indexado[oferta] = 0
+        
+        print(f"   {oferta}: ${totales_precio_indexado[oferta]:.2f}")
+
+    # PASO 2: Calcular totales de PRECIO NO INDEXADO (promedio ponderado)
+    print("📊 Calculando totales de precios NO indexados...")
+
+    for oferta in ofertas:
+        suma_cantidad_x_precio = 0
+        suma_cantidad = 0
+        
+        for fecha in fechas:
+            cantidad = tablas['tabla_cantidades']['datos'][fecha][oferta]
+            precio = tablas['tabla_precio_no_indexado']['datos'][fecha][oferta]
+            
+            suma_cantidad_x_precio += cantidad * precio
+            suma_cantidad += cantidad
+        
+        # Precio promedio ponderado de esta oferta
+        if suma_cantidad > 0:
+            totales_precio_no_indexado[oferta] = round(suma_cantidad_x_precio / suma_cantidad, 2)
+        else:
+            totales_precio_no_indexado[oferta] = 0
+        
+        print(f"   {oferta}: ${totales_precio_no_indexado[oferta]:.2f}")
+
+    # PASO 3: Calcular GRAN TOTAL (precio promedio ponderado global)
+    print("📊 Calculando GRAN TOTAL...")
+
+    # Gran total INDEXADO
+    gran_total_cantidad_x_precio_indexado = 0
+    gran_total_cantidad = 0
+
+    for fecha in fechas:
+        for oferta in ofertas:
+            cantidad = tablas['tabla_cantidades']['datos'][fecha][oferta]
+            precio = tablas['tabla_precio_indexado']['datos'][fecha][oferta]
+            
+            gran_total_cantidad_x_precio_indexado += cantidad * precio
+            gran_total_cantidad += cantidad
+
+    if gran_total_cantidad > 0:
+        gran_total_precio_indexado = round(gran_total_cantidad_x_precio_indexado / gran_total_cantidad, 2)
+    else:
+        gran_total_precio_indexado = 0
+
+    # Gran total NO INDEXADO
+    gran_total_cantidad_x_precio_no_indexado = 0
+
+    for fecha in fechas:
+        for oferta in ofertas:
+            cantidad = tablas['tabla_cantidades']['datos'][fecha][oferta]
+            precio = tablas['tabla_precio_no_indexado']['datos'][fecha][oferta]
+            
+            gran_total_cantidad_x_precio_no_indexado += cantidad * precio
+
+    if gran_total_cantidad > 0:
+        gran_total_precio_no_indexado = round(gran_total_cantidad_x_precio_no_indexado / gran_total_cantidad, 2)
+    else:
+        gran_total_precio_no_indexado = 0
+
+    print(f"   🎯 Gran Total Precio Indexado: ${gran_total_precio_indexado:.2f}")
+    print(f"   🎯 Gran Total Precio No Indexado: ${gran_total_precio_no_indexado:.2f}")
+
+    # Agregar los grandes totales a las tablas
+    tablas['tabla_precio_indexado']['gran_total'] = gran_total_precio_indexado
+    tablas['tabla_precio_no_indexado']['gran_total'] = gran_total_precio_no_indexado
+
+    # Agregar fila de totales a las tablas
     tablas['tabla_funcion_objetivo']['totales'] = totales_funcion_objetivo
     tablas['tabla_cantidades']['totales'] = totales_cantidades
+    tablas['tabla_precio_indexado']['totales'] = totales_precio_indexado
+    tablas['tabla_precio_no_indexado']['totales'] = totales_precio_no_indexado
 
     print(f"✅ Tablas calculadas correctamente")
     return tablas
@@ -468,8 +555,14 @@ def generar_tabla_html(titulo, datos_tabla, ofertas, incluir_totales=False, form
         
         filas_html.append(f'<tr>{"".join(celdas_total)}</tr>')
         
-        # Agregar fila de GRAN TOTAL (suma de todos)
-        gran_total = sum(datos_tabla['totales'].values())
+      # Agregar fila de GRAN TOTAL
+        if 'gran_total' in datos_tabla:
+            # Para tablas de PRECIOS: usar el promedio ponderado
+            gran_total = datos_tabla['gran_total']
+        else:
+            # Para FUNCIÓN OBJETIVO y CANTIDADES: sumar columnas
+            gran_total = sum(datos_tabla['totales'].values())
+
         if gran_total > 0.01:
             if formato == 'dinero':
                 gt_formateado = f"<strong>${gran_total:,.2f}</strong>"
@@ -503,7 +596,13 @@ def generar_tabla_html(titulo, datos_tabla, ofertas, incluir_totales=False, form
     # Calcular gran total si hay totales
     gran_total_html = ""
     if incluir_totales and 'totales' in datos_tabla:
-        gran_total = sum(datos_tabla['totales'].values())
+        if 'gran_total' in datos_tabla:
+            # Para tablas de PRECIOS: usar el promedio ponderado
+            gran_total = datos_tabla['gran_total']
+        else:
+            # Para FUNCIÓN OBJETIVO y CANTIDADES: sumar columnas
+            gran_total = sum(datos_tabla['totales'].values())
+        
         if gran_total > 0.01:
             if formato == 'dinero':
                 gt_formateado = f"${gran_total:,.2f}"
@@ -515,7 +614,7 @@ def generar_tabla_html(titulo, datos_tabla, ofertas, incluir_totales=False, form
                 gt_formateado = f"{gran_total:.2f}"
             
             gran_total_html = f'<div class="gran-total-bar">GRAN TOTAL: <strong>{gt_formateado}</strong></div>'
-    
+
     return tabla_html, gran_total_html
 
 def crear_html_con_scroll_individual(fig1, fig2, fig3, fig4):

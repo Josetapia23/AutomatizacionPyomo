@@ -296,9 +296,13 @@ class WorkerThread(QThread):
             mensaje_final += f"📊 Datos procesados: {len(ofertas_df_completas)}\n"
             mensaje_final += f"⚡ Datos optimizados: {len(ofertas_df)}\n"
             mensaje_final += f"🌐 Visualizaciones: {vis_dir}/reporte_consolidado.html"
-            
-            return True, mensaje_final
-            
+
+            # Mostrar mensaje corto en la esquina inferior izquierda
+            self.progress.emit("✅ Flujo terminado correctamente")
+
+            # Retornar mensaje completo para la ventana emergente
+            return True, mensaje_final            
+        
         except Exception as e:
             import traceback
             error_msg = f"Error en flujo completo: {str(e)}\n\n"
@@ -1347,11 +1351,12 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
         """Callback cuando se completa una operación"""
         self.bloquear_botones(False)
         self.mostrar_progreso(False)
-        self.actualizar_status(mensaje)
+        #self.actualizar_status(mensaje)
         
         if exito:
             QMessageBox.information(self, "Éxito", mensaje)
         else:
+            self.actualizar_status(mensaje)
             QMessageBox.critical(self, "Error", mensaje)
 
     def mostrar_dialogo_confirmacion(self, titulo, mensaje, detalles):
