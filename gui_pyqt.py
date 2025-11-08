@@ -1,4 +1,3 @@
-
 """
 GUI con PyQt - Sistema de Optimización Energética COMPLETO
 INTERFAZ FINAL: Todos los campos que el usuario necesita ingresar
@@ -28,7 +27,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                            QHBoxLayout, QGridLayout, QLabel, QLineEdit, QPushButton, 
                            QFileDialog, QMessageBox, QTextEdit, QFrame, QSizePolicy,
                            QProgressBar, QScrollArea)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QSize
 from PyQt5.QtGui import QFont, QPalette, QColor, QIcon
 from pathlib import Path
 from datetime import datetime
@@ -909,6 +908,20 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
                 background-color: #2c5aa0;
             }
             
+            QPushButton#btn_plantilla {
+            background-color: white;
+            color: #38a169;
+            border: 2px solid #38a169;
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 13px;
+        }
+
+        QPushButton#btn_plantilla:hover {
+            background-color: #CFF5DA;
+            border: 2px solid #2f855a;
+        }
+            
             QPushButton#btn_validar {
                 background-color: #38a169;
                 color: white;
@@ -1022,13 +1035,15 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
         self.entry_archivo_demanda = self.crear_campo_archivo_pyqt(
             datos_layout, 
             "📄 Archivo datos iniciales (semilla):", 
-            False
+            False,
+            plantilla="datos_iniciales_plantilla.xlsx"
         )
         
         self.entry_carpeta_ofertas = self.crear_campo_archivo_pyqt(
             datos_layout, 
             "📁 Carpeta ofertas:", 
-            True
+            True,
+            plantilla="PLANTILLA-OFERTA-1.xlsx"
         )
         
         self.entry_carpeta_exportacion = self.crear_campo_archivo_pyqt(
@@ -1123,7 +1138,7 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
         
         return entry
         
-    def crear_campo_archivo_pyqt(self, layout, etiqueta, es_carpeta):
+    def crear_campo_archivo_pyqt(self, layout, etiqueta, es_carpeta, plantilla=None):
         """Crear campo para archivos con PyQt"""
         # Label
         label = QLabel(etiqueta)
@@ -1152,6 +1167,22 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
         else:
             btn.clicked.connect(lambda: self.seleccionar_archivo(entry))
         file_layout.addWidget(btn)
+        
+        # Botón descargar plantilla (si aplica)
+        if plantilla:
+            btn_plantilla = QPushButton()
+            btn_plantilla.setObjectName("btn_plantilla")
+            btn_plantilla.setMaximumWidth(50)
+            # Usar ícono de Excel
+            icon_path = Path(__file__).parent / "recursos" / "excel_icon.png"
+            if icon_path.exists():
+                btn_plantilla.setIcon(QIcon(str(icon_path)))
+                btn_plantilla.setIconSize(QSize(20, 20))
+            else:
+                btn_plantilla.setText("📥")  # Fallback si no encuentra el ícono
+            btn_plantilla.setToolTip(f"Descargar plantilla: {plantilla}")
+            btn_plantilla.clicked.connect(lambda: self.descargar_plantilla(plantilla))
+            file_layout.addWidget(btn_plantilla)
         
         layout.addWidget(file_widget)
         layout.addSpacing(6)
@@ -1332,6 +1363,40 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
             entry.setText(carpeta)
             self.actualizar_status(f"📁 Carpeta seleccionada: {Path(carpeta).name}")
     
+    def descargar_plantilla(self, nombre_plantilla):
+        """Descargar plantilla de Excel"""
+        # Ruta de la plantilla en el proyecto
+        ruta_plantilla = Path(__file__).parent / "plantillas" / nombre_plantilla
+        
+        if not ruta_plantilla.exists():
+            QMessageBox.warning(
+                self, "Plantilla no encontrada",
+                f"No se encuentra la plantilla: {nombre_plantilla}"
+            )
+            return
+        
+        # Abrir diálogo para guardar
+        archivo_destino, _ = QFileDialog.getSaveFileName(
+            self, "Guardar plantilla como", 
+            str(Path.home() / "Downloads" / nombre_plantilla),
+            "Excel files (*.xlsx)"
+        )
+        
+        if archivo_destino:
+            try:
+                import shutil
+                shutil.copy2(ruta_plantilla, archivo_destino)
+                QMessageBox.information(
+                    self, "Éxito",
+                    f"✅ Plantilla descargada exitosamente en:\n{archivo_destino}"
+                )
+                self.actualizar_status(f"📥 Plantilla descargada: {Path(archivo_destino).name}")
+            except Exception as e:
+                QMessageBox.critical(
+                    self, "Error",
+                    f"❌ Error al descargar plantilla: {str(e)}"
+                )
+    
     def ejecutar_operacion(self, operacion, **kwargs):
         """Ejecutar operación en worker thread"""
         if not PROYECTO_CONECTADO:
@@ -1351,12 +1416,11 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
         """Callback cuando se completa una operación"""
         self.bloquear_botones(False)
         self.mostrar_progreso(False)
-        #self.actualizar_status(mensaje)
+        self.actualizar_status(mensaje)
         
         if exito:
             QMessageBox.information(self, "Éxito", mensaje)
         else:
-            self.actualizar_status(mensaje)
             QMessageBox.critical(self, "Error", mensaje)
 
     def mostrar_dialogo_confirmacion(self, titulo, mensaje, detalles):

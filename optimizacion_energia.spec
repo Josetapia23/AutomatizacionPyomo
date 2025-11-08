@@ -48,7 +48,13 @@ datas = [
     # Incluir archivos de configuración
     (str(BASE_DIR / 'config.py'), '.'),
     
-    # ⭐ INCLUIR TODO PYOMO COMO DATOS (solución definitiva)
+    # Incluir plantillas Excel
+    (str(BASE_DIR / 'plantillas'), 'plantillas'),
+    
+    # Incluir recursos (íconos)
+    (str(BASE_DIR / 'recursos'), 'recursos'),
+    
+    # INCLUIR TODO PYOMO COMO DATOS (solución definitiva)
     (str(SITE_PACKAGES / 'pyomo'), 'pyomo'),
     
     # Incluir README si existe
@@ -199,7 +205,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,  # Puedes agregar un .ico aquí si tienes uno
+    icon=str(BASE_DIR / 'recursos' / 'excel_icon.png') if (BASE_DIR / 'recursos' / 'excel_icon.png').exists() else None,
 )
 
 # ==================== COLLECT (Recolectar todo) ====================
