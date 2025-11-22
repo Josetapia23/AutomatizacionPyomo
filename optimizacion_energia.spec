@@ -205,7 +205,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=str(BASE_DIR / 'recursos' / 'excel_icon.png') if (BASE_DIR / 'recursos' / 'excel_icon.png').exists() else None,
+    icon=str(BASE_DIR / 'recursos' / 'app_icon.ico') if (BASE_DIR / 'recursos' / 'app_icon.ico').exists() else None,
 )
 
 # ==================== COLLECT (Recolectar todo) ====================
