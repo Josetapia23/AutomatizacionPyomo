@@ -1416,10 +1416,14 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
         """Callback cuando se completa una operación"""
         self.bloquear_botones(False)
         self.mostrar_progreso(False)
-        self.actualizar_status(mensaje)
+        self.actualizar_status("✅ Operación completada")
         
         if exito:
-            QMessageBox.information(self, "Éxito", mensaje)
+            # Usar ventana con scroll para mensajes largos
+            if len(mensaje) > 400:
+                self.mostrar_mensaje_largo("✅ Éxito - Flujo Completo", mensaje)
+            else:
+                QMessageBox.information(self, "Éxito", mensaje)
         else:
             QMessageBox.critical(self, "Error", mensaje)
 
@@ -1491,6 +1495,45 @@ class OptimizacionPyQtGUICompleta(QMainWindow):
         """Generar visualizaciones"""
         parametros = self.obtener_todos_los_parametros()
         self.ejecutar_operacion("visualizaciones", **parametros)
+    
+    def mostrar_mensaje_largo(self, titulo, mensaje):
+        """Muestra mensaje largo en ventana con scroll - EVITA CORTES"""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle(titulo)
+        dialog.setMinimumSize(650, 450)
+        
+        layout = QVBoxLayout()
+        
+        # Text edit con scroll
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)
+        text_edit.setPlainText(mensaje)
+        text_edit.setStyleSheet("""
+            QTextEdit {
+                font-family: 'Segoe UI', Arial;
+                font-size: 12px;
+                padding: 10px;
+            }
+        """)
+        layout.addWidget(text_edit)
+        
+        # Botón OK
+        btn_ok = QPushButton("OK")
+        btn_ok.setMinimumHeight(35)
+        btn_ok.clicked.connect(dialog.accept)
+        layout.addWidget(btn_ok)
+        
+        dialog.setLayout(layout)
+        
+        # Centrar
+        dialog.move(
+            self.x() + (self.width() - dialog.width()) // 2,
+            self.y() + (self.height() - dialog.height()) // 2
+        )
+        
+        return dialog.exec_()
 
 def main():
     """Función principal"""
