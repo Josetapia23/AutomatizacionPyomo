@@ -822,12 +822,17 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                 if resumen_datos:
                     df_resumen_rechazos = pd.DataFrame(resumen_datos)
                     df_resumen_rechazos = df_resumen_rechazos.sort_values(
-                        by='CANTIDAD TOTAL RECHAZADA (KWh)', 
+                        by='CANTIDAD TOTAL RECHAZADA (KWh)',
                         ascending=False
                     )
-                    
-                    df_resumen_rechazos.to_excel(writer, sheet_name="RESUMEN RECHAZOS PRECIO", index=False)
-                    logger.info("Hoja de resumen de rechazos por precio exportada")
+
+                    # Exportar usando la nueva función con validación de límite
+                    dividir_y_exportar_si_necesario(
+                        df_resumen_rechazos,
+                        writer,
+                        "RESUMEN RECHAZOS PRECIO",
+                        incluir_titulo=None
+                    )
                     print(f"Resumen de rechazos generado: {len(resumen_datos)} ofertas")
         
         print(f"Resultados consolidados exportados exitosamente a: {archivo_salida}")
