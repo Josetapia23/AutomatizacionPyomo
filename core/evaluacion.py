@@ -10,6 +10,78 @@ from core.utils import verificar_archivo_existe, leer_excel_seguro
 
 logger = logging.getLogger(__name__)
 
+# Límite seguro de filas para Excel (dejamos margen de seguridad)
+MAX_FILAS_EXCEL = 1_000_000  # Excel soporta hasta 1,048,576 filas
+
+def dividir_y_exportar_si_necesario(df, writer, nombre_hoja_base, incluir_titulo=None):
+    """
+    Exporta un DataFrame a Excel, dividiéndolo en múltiples hojas si excede el límite de filas.
+
+    Args:
+        df (DataFrame): DataFrame a exportar
+        writer (ExcelWriter): Objeto ExcelWriter donde se escribirá
+        nombre_hoja_base (str): Nombre base para la(s) hoja(s)
+        incluir_titulo (DataFrame, opcional): DataFrame con título a incluir en cada hoja
+
+    Returns:
+        list: Lista de nombres de hojas creadas
+    """
+    # Si el DataFrame está dentro del límite, exportar normalmente
+    total_filas = len(df)
+    filas_titulo = len(incluir_titulo) if incluir_titulo is not None else 0
+
+    if total_filas + filas_titulo <= MAX_FILAS_EXCEL:
+        # Caso normal: exportar en una sola hoja (comportamiento original)
+        if incluir_titulo is not None:
+            df_final = pd.concat([incluir_titulo, df], ignore_index=True)
+        else:
+            df_final = df
+
+        # Asegurar que el nombre no exceda 31 caracteres
+        nombre_hoja = nombre_hoja_base[:31]
+        df_final.to_excel(writer, sheet_name=nombre_hoja, index=False)
+        logger.info(f"Hoja exportada: {nombre_hoja} ({total_filas} filas)")
+        return [nombre_hoja]
+
+    # Caso especial: necesitamos dividir en múltiples hojas
+    logger.warning(f"⚠️ El DataFrame para '{nombre_hoja_base}' tiene {total_filas} filas, "
+                   f"excediendo el límite de {MAX_FILAS_EXCEL}. Dividiendo en múltiples hojas...")
+    print(f"⚠️ ADVERTENCIA: {nombre_hoja_base} tiene {total_filas} filas")
+    print(f"   Dividiendo en múltiples hojas para no exceder el límite de Excel...")
+
+    hojas_creadas = []
+    filas_por_hoja = MAX_FILAS_EXCEL - filas_titulo  # Dejar espacio para el título
+    num_hojas = (total_filas + filas_por_hoja - 1) // filas_por_hoja  # Redondeo hacia arriba
+
+    for i in range(num_hojas):
+        inicio = i * filas_por_hoja
+        fin = min((i + 1) * filas_por_hoja, total_filas)
+
+        # Extraer subset del DataFrame
+        df_subset = df.iloc[inicio:fin].copy()
+
+        # Agregar título si se proporcionó
+        if incluir_titulo is not None:
+            df_subset = pd.concat([incluir_titulo, df_subset], ignore_index=True)
+
+        # Crear nombre de hoja con sufijo de parte
+        if num_hojas > 1:
+            nombre_hoja = f"{nombre_hoja_base}-P{i+1}"
+        else:
+            nombre_hoja = nombre_hoja_base
+
+        # Asegurar que no exceda 31 caracteres
+        nombre_hoja = nombre_hoja[:31]
+
+        # Exportar
+        df_subset.to_excel(writer, sheet_name=nombre_hoja, index=False)
+        logger.info(f"Hoja exportada: {nombre_hoja} (filas {inicio+1}-{fin} de {total_filas})")
+        print(f"   ✅ Hoja creada: {nombre_hoja} ({len(df_subset) - filas_titulo} filas de datos)")
+        hojas_creadas.append(nombre_hoja)
+
+    print(f"   📊 Total: {num_hojas} hoja(s) creada(s) para {nombre_hoja_base}")
+    return hojas_creadas
+
 def evaluar_ofertas_para_optimizacion(archivo_ofertas):
     """
     Lee el archivo de ofertas y prepara los datos para la optimización.
@@ -532,60 +604,58 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                     if not df_comprar_consolidado.empty:
                         # Mantener el orden cronológico original
                         df_comprar_ordenado = df_comprar_consolidado.copy()
-                        
+
                         # Convertir fechas a formato string DD/MM/YYYY
                         df_comprar_ordenado["X"] = df_comprar_ordenado["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
-                        
+
                         # Eliminar columna FECHA (mantener sólo X)
                         df_comprar_ordenado = df_comprar_ordenado.drop(columns=["FECHA"])
-                        
+
                         # Añadir un título para el cuadro
                         titulo_comprar = pd.DataFrame({
                             "X": ["ENERGÍA A COMPRAR AL VENDEDOR"],
                             **{i: [None] for i in range(1, 25)}  # Columnas del 1 al 24
                         })
-                        
-                        # Concatenar título y datos
-                        df_final_comprar = pd.concat([titulo_comprar, df_comprar_ordenado], ignore_index=True)
-                        
+
                         # Asegurar que el nombre de la hoja no exceda los 31 caracteres
                         sheet_name = f"DA-{oferta}"
-                        if len(sheet_name) > 31:
-                            sheet_name = sheet_name[:31]
-                        
-                        # Exportar sin el índice
-                        df_final_comprar.to_excel(writer, sheet_name=sheet_name, index=False)
-                        logger.info(f"Hoja exportada: {sheet_name}")
+
+                        # Exportar usando la nueva función con validación de límite
+                        dividir_y_exportar_si_necesario(
+                            df_comprar_ordenado,
+                            writer,
+                            sheet_name,
+                            incluir_titulo=titulo_comprar
+                        )
                     
                     # Exportar la energía no comprada (total)
                     if df_no_comprado_total is not None and not df_no_comprado_total.empty:
                         # Mantener el orden cronológico original
                         df_no_comprado_ordenado = df_no_comprado_total.copy()
-                        
+
                         # Convertir fechas a formato string DD/MM/YYYY
                         if "FECHA" in df_no_comprado_ordenado.columns:
                             df_no_comprado_ordenado["X"] = df_no_comprado_ordenado["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
-                            
+
                             # Eliminar columna FECHA (mantener sólo X)
                             df_no_comprado_ordenado = df_no_comprado_ordenado.drop(columns=["FECHA"])
-                        
+
                         # Añadir un título para el cuadro
                         titulo_no_comprada = pd.DataFrame({
                             "X": ["ENERGÍA NO COMPRADA AL VENDEDOR"],
                             **{i: [None] for i in range(1, 25)}  # Columnas del 1 al 24
                         })
-                        
-                        # Concatenar título y datos
-                        df_final_no_comprada = pd.concat([titulo_no_comprada, df_no_comprado_ordenado], ignore_index=True)
-                        
+
                         # Nombre de la hoja
                         sheet_name_ena = f"ENA-{oferta}"
-                        if len(sheet_name_ena) > 31:
-                            sheet_name_ena = sheet_name_ena[:31]
-                        
-                        # Exportar sin el índice
-                        df_final_no_comprada.to_excel(writer, sheet_name=sheet_name_ena, index=False)
-                        logger.info(f"Hoja exportada: {sheet_name_ena}")
+
+                        # Exportar usando la nueva función con validación de límite
+                        dividir_y_exportar_si_necesario(
+                            df_no_comprado_ordenado,
+                            writer,
+                            sheet_name_ena,
+                            incluir_titulo=titulo_no_comprada
+                        )
                 else:
                     # CASO 2: La oferta fue completamente rechazada por precio
                     if oferta in ofertas_rechazadas_por_precio:
@@ -606,24 +676,26 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                         
                         if da_rows:
                             da_df = pd.DataFrame(da_rows)
-                            
+
                             # Convertir fechas a formato string DD/MM/YYYY
                             da_df["X"] = da_df["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
                             da_df = da_df.drop(columns=["FECHA"])
-                            
+
                             # Añadir título
                             titulo_da = pd.DataFrame({
                                 "X": ["ENERGÍA A COMPRAR AL VENDEDOR"],
                                 **{i: [None] for i in range(1, 25)}
                             })
-                            
-                            df_final_da = pd.concat([titulo_da, da_df], ignore_index=True)
-                            
+
                             sheet_name = f"DA-{oferta}"
-                            if len(sheet_name) > 31:
-                                sheet_name = sheet_name[:31]
-                            
-                            df_final_da.to_excel(writer, sheet_name=sheet_name, index=False)
+
+                            # Exportar usando la nueva función con validación de límite
+                            dividir_y_exportar_si_necesario(
+                                da_df,
+                                writer,
+                                sheet_name,
+                                incluir_titulo=titulo_da
+                            )
                             logger.info(f"Hoja DA exportada para oferta rechazada: {oferta}")
                             print(f"Hoja DA exportada para oferta rechazada: {oferta}")
                         
@@ -647,24 +719,26 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                         
                         if ena_rows:
                             ena_df = pd.DataFrame(ena_rows)
-                            
+
                             # Convertir fechas a formato string DD/MM/YYYY
                             ena_df["X"] = ena_df["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
                             ena_df = ena_df.drop(columns=["FECHA"])
-                            
+
                             # Añadir título
                             titulo_ena = pd.DataFrame({
                                 "X": ["ENERGÍA NO COMPRADA AL VENDEDOR"],
                                 **{i: [None] for i in range(1, 25)}
                             })
-                            
-                            df_final_ena = pd.concat([titulo_ena, ena_df], ignore_index=True)
-                            
+
                             sheet_name_ena = f"ENA-{oferta}"
-                            if len(sheet_name_ena) > 31:
-                                sheet_name_ena = sheet_name_ena[:31]
-                            
-                            df_final_ena.to_excel(writer, sheet_name=sheet_name_ena, index=False)
+
+                            # Exportar usando la nueva función con validación de límite
+                            dividir_y_exportar_si_necesario(
+                                ena_df,
+                                writer,
+                                sheet_name_ena,
+                                incluir_titulo=titulo_ena
+                            )
                             logger.info(f"Hoja ENA exportada para oferta rechazada: {oferta}")
                             print(f"Hoja ENA exportada para oferta rechazada: {oferta}")
                     else:
@@ -673,23 +747,25 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
             # 2. Exportar hoja de DEMANDA FALTANTE
             if "DEMANDA_FALTANTE" in resultados_dict:
                 df_export = resultados_dict["DEMANDA_FALTANTE"].copy()
-                
+
                 # Mantener el orden cronológico original
                 # Convertir fechas a formato string DD/MM/YYYY sin ordenar
                 df_export["X"] = df_export["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
                 df_export = df_export.drop(columns=["FECHA"])
-                
+
                 # Añadir un título a la hoja DEMANDA FALTANTE
                 titulo_faltante = pd.DataFrame({
                     "X": ["DEMANDA FALTANTE POR HORA Y DÍA"],
                     **{i: [None] for i in range(1, 25)}  # Columnas del 1 al 24
                 })
-                
-                # Concatenar título y datos
-                df_final = pd.concat([titulo_faltante, df_export], ignore_index=True)
-                
-                df_final.to_excel(writer, sheet_name="DEMANDA FALTANTE", index=False)
-                logger.info(f"Hoja exportada: DEMANDA FALTANTE")
+
+                # Exportar usando la nueva función con validación de límite
+                dividir_y_exportar_si_necesario(
+                    df_export,
+                    writer,
+                    "DEMANDA FALTANTE",
+                    incluir_titulo=titulo_faltante
+                )
             
             # Exportar hoja de RESUMEN EJECUTIVO (reemplaza a las hojas RESUMEN y RESUMEN SIN INDEXAR)
             if "RESUMEN EJECUTIVO" in resultados_dict:
@@ -699,10 +775,10 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                 print(f"DEBUG - Número de filas en resumen: {len(df_export)}")
                 if len(df_export) > 0:
                     print(f"DEBUG - Primera fila de datos: {df_export.iloc[0].to_dict()}")
-                
+
                 # El formato de fecha ya está establecido como MM/YYYY
                 # No reordenar, preservar el orden original
-                
+
                 # Crear títulos dinámicamente según las columnas disponibles
                 titulos = {}
                 titulos["FECHA"] = ""
@@ -710,15 +786,17 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                     if col != "FECHA":
                         # Las columnas ya incluyen las unidades en sus nombres
                         titulos[col] = ""
-                
+
                 # Añadir la fila de títulos
                 titulo_df = pd.DataFrame([titulos])
-                
-                # Concatenar título y datos
-                df_final = pd.concat([titulo_df, df_export], ignore_index=True)
-                
-                df_final.to_excel(writer, sheet_name="RESUMEN EJECUTIVO", index=False)
-                logger.info(f"Hoja exportada: RESUMEN EJECUTIVO")
+
+                # Exportar usando la nueva función con validación de límite
+                dividir_y_exportar_si_necesario(
+                    df_export,
+                    writer,
+                    "RESUMEN EJECUTIVO",
+                    incluir_titulo=titulo_df
+                )
             
             # NUEVO: Exportar un resumen de ofertas rechazadas por precio
             if ofertas_rechazadas_por_precio:
@@ -776,8 +854,6 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                                     **{i: [None] for i in range(1, 25)}
                                 })
                             
-                            df_final = pd.concat([titulo, df_export], ignore_index=True)
-                            
                             try:
                                 oferta_part = nombre_hoja.split("DEMANDA ASIGNADA ")[1].split(" IT")[0]
                                 it_part = "IT1"
@@ -785,54 +861,64 @@ def exportar_resultados_por_oferta(resultados_dict, archivo_salida):
                                     it_match = nombre_hoja.split(" IT")[1].split("_")[0]
                                     if it_match:
                                         it_part = f"IT{it_match}"
-                                
+
                                 if "_COMPRAR" in nombre_hoja:
                                     prefix = "DA"
                                 else:
                                     prefix = "ENA"
-                                
+
                                 sheet_name = f"{prefix}-{oferta_part}-{it_part}"
-                                
-                                if len(sheet_name) > 31:
-                                    sheet_name = sheet_name[:31]
-                                
+
                             except Exception as e:
                                 logger.warning(f"Error al crear nombre de hoja para {nombre_hoja}: {e}")
                                 sheet_name = nombre_hoja[:31]
-                            
-                            df_final.to_excel(writer, sheet_name=sheet_name, index=False)
-                            logger.info(f"Hoja exportada a análisis: {sheet_name}")
+
+                            # Exportar usando la nueva función con validación de límite
+                            dividir_y_exportar_si_necesario(
+                                df_export,
+                                writer,
+                                sheet_name,
+                                incluir_titulo=titulo
+                            )
                     
                     elif nombre_hoja == "DEMANDA_FALTANTE":
                         df_export = df.copy()
-                        
+
                         if "FECHA" in df_export.columns:
                             df_export["X"] = df_export["FECHA"].apply(lambda x: x.strftime('%d/%m/%Y'))
                             df_export = df_export.drop(columns=["FECHA"])
-                            
+
                             titulo = pd.DataFrame({
                                 "X": ["DEMANDA FALTANTE POR HORA Y DÍA"],
                                 **{i: [None] for i in range(1, 25)}
                             })
-                            
-                            df_final = pd.concat([titulo, df_export], ignore_index=True)
-                            df_final.to_excel(writer, sheet_name="DEMANDA FALTANTE", index=False)
-                            logger.info("Hoja DEMANDA FALTANTE exportada a análisis")
+
+                            # Exportar usando la nueva función con validación de límite
+                            dividir_y_exportar_si_necesario(
+                                df_export,
+                                writer,
+                                "DEMANDA FALTANTE",
+                                incluir_titulo=titulo
+                            )
                     
                     elif nombre_hoja == "RESUMEN EJECUTIVO":
                         df_export = df.copy()
-                        
+
                         titulos = {}
                         titulos["FECHA"] = ""
                         for col in df_export.columns:
                             if col != "FECHA":
                                 titulos[col] = ""
-                        
+
                         titulo_df = pd.DataFrame([titulos])
-                        df_final = pd.concat([titulo_df, df_export], ignore_index=True)
-                        
-                        df_final.to_excel(writer, sheet_name=nombre_hoja, index=False)
-                        logger.info(f"Hoja {nombre_hoja} exportada a análisis")
+
+                        # Exportar usando la nueva función con validación de límite
+                        dividir_y_exportar_si_necesario(
+                            df_export,
+                            writer,
+                            nombre_hoja,
+                            incluir_titulo=titulo_df
+                        )
                     
                     else:
                         df.to_excel(writer, sheet_name=nombre_hoja[:31], index=False)
